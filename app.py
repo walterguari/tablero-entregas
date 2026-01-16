@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Planificación Entregas", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Portal Concesionaria", layout="wide", initial_sidebar_state="expanded")
 
 # --- CARGA DE DATOS ---
 SHEET_ID = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
@@ -14,25 +14,31 @@ URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=
 def load_data():
     try:
         df = pd.read_csv(URL)
-        # Limpiamos nombres de columnas: mayúsculas y sin espacios al inicio/final
+        # Limpieza general de columnas
         df.columns = df.columns.str.strip().str.upper()
         
-        # --- BÚSQUEDA DE LA COLUMNA FECHA ---
-        # Buscamos específicamente "FECHA DE CONFIRMACIÓN" o "FECHA"
-        col_fecha = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
-        if not col_fecha:
-            col_fecha = next((c for c in df.columns if "FECHA" in c), None)
+        # --- PROCESAMIENTO PARA ENTREGAS ---
+        col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
+        if not col_entrega:
+            col_entrega = next((c for c in df.columns if "FECHA" in c), None)
+            
+        if col_entrega:
+            df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
+            df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
+            df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
+            df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
+            df["SEMANA_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.isocalendar().week
 
-        if col_fecha:
-            # Convertimos a formato fecha
-            df["FECHA_OFICIAL"] = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-            # Creamos columnas auxiliares para filtrar
-            df["AÑO"] = df["FECHA_OFICIAL"].dt.year
-            df["MES"] = df["FECHA_OFICIAL"].dt.month_name()
-            df["N_MES"] = df["FECHA_OFICIAL"].dt.month
-            df["SEMANA"] = df["FECHA_OFICIAL"].dt.isocalendar().week
-            df["DIA_SEMANA"] = df["FECHA_OFICIAL"].dt.day_name()
+        # --- PROCESAMIENTO PARA STOCK (FECHA ARRIBO) ---
+        # Buscamos la columna "FECHA ARRIBO" (basado en tu imagen)
+        col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         
+        if col_arribo:
+            df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
+            df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
+            df["MES_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.month_name()
+            df["N_MES_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.month
+            
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
@@ -40,93 +46,127 @@ def load_data():
 
 df = load_data()
 
-# --- BARRA LATERAL (FILTROS) ---
-st.sidebar.header("🔍 Filtros de Planificación")
+# --- MENÚ DE NAVEGACIÓN ---
+st.sidebar.title("Navegación")
+opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock"])
+st.sidebar.markdown("---")
 
-if not df.empty and "FECHA_OFICIAL" in df.columns:
-    # 1. Filtro AÑO
-    años_disponibles = sorted(df["AÑO"].dropna().unique().astype(int))
-    año_sel = st.sidebar.selectbox("Seleccionar Año", options=años_disponibles, index=len(años_disponibles)-1)
-    
-    # Filtramos primero por año
-    df_año = df[df["AÑO"] == año_sel]
-    
-    # 2. Filtro MES (Dinámico según el año)
-    meses_disponibles = df_año["N_MES"].unique()
-    meses_nombres = df_año["MES"].unique()
-    # Creamos mapa de mes nombre -> numero
-    mapa_meses = dict(zip(meses_nombres, meses_disponibles))
-    
-    # Ordenamos los meses cronológicamente
-    if mapa_meses:
-        mes_sel_nombre = st.sidebar.selectbox("Seleccionar Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]))
-        df_final = df_año[df_año["MES"] == mes_sel_nombre].copy()
+# ==========================================
+# VISTA 1: PLANIFICACIÓN DE ENTREGAS
+# ==========================================
+if opcion == "📅 Planificación Entregas":
+    st.title("📅 Planificación de Entregas")
+    st.sidebar.header("Filtros de Entrega")
+
+    if not df.empty and "FECHA_ENTREGA_DT" in df.columns:
+        # Filtro AÑO
+        años = sorted(df["AÑO_ENTREGA"].dropna().unique().astype(int))
+        año_sel = st.sidebar.selectbox("Año", options=años, index=len(años)-1)
+        df_año = df[df["AÑO_ENTREGA"] == año_sel]
+        
+        # Filtro MES
+        meses_nombres = df_año["MES_ENTREGA"].unique()
+        meses_nums = df_año["N_MES_ENTREGA"].unique()
+        mapa_meses = dict(zip(meses_nombres, meses_nums))
+        
+        if mapa_meses:
+            mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]))
+            df_final = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
+            
+            # Métricas
+            c1, c2 = st.columns(2)
+            c1.metric("Vehículos a Entregar", len(df_final))
+            c2.metric("Semanas Activas", df_final["SEMANA_ENTREGA"].nunique())
+
+            # Gráfico
+            st.subheader("Distribución Semanal")
+            conteo = df_final["SEMANA_ENTREGA"].value_counts().sort_index().reset_index()
+            conteo.columns = ["Semana", "Cantidad"]
+            st.bar_chart(conteo.set_index("Semana"))
+
+            # Tabla Entregas
+            st.subheader("Listado de Entregas")
+            cols_entrega = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "VIN", "DESCRIPCION COLOR"]
+            cols_reales = [c for c in cols_entrega if c in df_final.columns]
+            
+            st.dataframe(
+                df_final[cols_reales].sort_values("FECHA_ENTREGA_DT"),
+                use_container_width=True,
+                hide_index=True,
+                column_config={"FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY")}
+            )
+        else:
+            st.warning("No hay datos para el año seleccionado.")
     else:
-        st.sidebar.warning("No hay datos de meses para este año.")
-        df_final = pd.DataFrame() # Tabla vacía
+        st.info("No se encontraron fechas de entrega para analizar.")
+
+# ==========================================
+# VISTA 2: CONTROL DE STOCK (NUEVA HOJA)
+# ==========================================
+elif opcion == "📦 Control de Stock":
+    st.title("📦 Tablero de Stock y Arribos")
+    st.sidebar.header("Filtros de Stock")
     
-    st.sidebar.markdown("---")
-    st.sidebar.info(f"Mostrando datos de: **{mes_sel_nombre} {año_sel}**")
+    df_stock = df.copy()
 
-else:
-    st.sidebar.warning("Esperando datos...")
-    df_final = pd.DataFrame()
+    if not df_stock.empty:
+        # --- FILTROS DE STOCK ---
+        
+        # 1. Filtro Fecha Arribo (Opcional)
+        if "AÑO_ARRIBO" in df_stock.columns:
+            usar_filtro_fecha = st.sidebar.checkbox("Filtrar por Fecha de Arribo")
+            if usar_filtro_fecha:
+                años_arribo = sorted(df_stock["AÑO_ARRIBO"].dropna().unique().astype(int))
+                if años_arribo:
+                    año_arribo_sel = st.sidebar.selectbox("Año Arribo", años_arribo, index=len(años_arribo)-1)
+                    df_stock = df_stock[df_stock["AÑO_ARRIBO"] == año_arribo_sel]
+                    
+                    meses_arribo = df_stock["MES_ARRIBO"].unique()
+                    if len(meses_arribo) > 0:
+                        mes_arribo_sel = st.sidebar.selectbox("Mes Arribo", meses_arribo)
+                        df_stock = df_stock[df_stock["MES_ARRIBO"] == mes_arribo_sel]
 
-# --- PANTALLA PRINCIPAL ---
-st.title("📅 Tablero de Entregas")
+        # 2. Filtro MARCA
+        if "MARCA" in df_stock.columns:
+            todas_marcas = df_stock["MARCA"].unique()
+            marcas_sel = st.sidebar.multiselect("Marca", options=todas_marcas, default=todas_marcas)
+            df_stock = df_stock[df_stock["MARCA"].isin(marcas_sel)]
 
-if not df_final.empty:
-    # Métricas superiores
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Vehículos a Entregar", len(df_final))
-    col2.metric("Semanas con Actividad", df_final["SEMANA"].nunique())
-    
-    # ESTA PARTE ES LA QUE DABA ERROR (Ya corregida con sangría)
-    if "MARCA" in df_final.columns:
-        col3.metric("Marcas Distintas", len(df_final["MARCA"].unique()))
+        # 3. Filtro ESTADO
+        if "ESTADO" in df_stock.columns:
+            todos_estados = df_stock["ESTADO"].unique()
+            estados_sel = st.sidebar.multiselect("Estado", options=todos_estados, default=todos_estados)
+            df_stock = df_stock[df_stock["ESTADO"].isin(estados_sel)]
+
+        # --- ETIQUETA DE CANTIDAD ---
+        st.markdown(f"### 🚗 Unidades en lista: **{len(df_stock)}**")
+        
+        # --- TABLA CON COLUMNAS SOLICITADAS ---
+        # Definimos las columnas exactas que pediste en la imagen
+        cols_stock_pedidas = [
+            "VIN", 
+            "MARCA", 
+            "MODELO", 
+            "DESCRIPCION COLOR", 
+            "FECHA DE FABRICACION", 
+            "ANTIGÜEDAD DE STOCK", # Ojo: puede variar si lleva acento o no en tu CSV
+            "ANTIGUEDAD DE STOCK", # Probamos ambas opciones
+            "UBICACION", 
+            "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
+        ]
+        
+        # Filtramos solo las que existen para que no de error
+        cols_finales_stock = [c for c in cols_stock_pedidas if c in df_stock.columns]
+        
+        # Agregamos Fecha Arribo si existe
+        col_arribo_orig = next((c for c in df.columns if "ARRIBO" in c and "FECHA" in c), None)
+        if col_arribo_orig and col_arribo_orig not in cols_finales_stock:
+             cols_finales_stock.insert(4, col_arribo_orig)
+
+        st.dataframe(
+            df_stock[cols_finales_stock],
+            use_container_width=True,
+            hide_index=True
+        )
     else:
-        col3.metric("Marcas", "N/A")
-
-    # --- 1. RESUMEN SEMANAL (Visual) ---
-    st.subheader("📊 Distribución Semanal")
-    conteo_semanal = df_final["SEMANA"].value_counts().sort_index().reset_index()
-    conteo_semanal.columns = ["Semana #", "Cantidad Autos"]
-    st.bar_chart(conteo_semanal.set_index("Semana #"))
-
-    # --- 2. TABLA DE DETALLE ---
-    st.subheader("📋 Listado de Vehículos a Entregar")
-    
-    # Seleccionamos las columnas más importantes basadas en tu imagen
-    cols_posibles = [
-        "FECHA_OFICIAL", 
-        "HS DE ENTREGA AL CLIENTE", 
-        "CLIENTE", 
-        "MARCA", 
-        "MODELO", 
-        "DESCRIPCION COLOR", 
-        "VIN", 
-        "UBICACION",
-        "ESTADO DE ADMINISTRATIVO"
-    ]
-    
-    # Filtramos solo las que existen en tu Excel
-    cols_reales = [c for c in cols_posibles if c in df_final.columns]
-    
-    # Mostramos la tabla ordenada por fecha
-    st.dataframe(
-        df_final[cols_reales].sort_values(by="FECHA_OFICIAL"),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "FECHA_OFICIAL": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
-            "HS DE ENTREGA AL CLIENTE": "Hora",
-            "DESCRIPCION COLOR": "Color",
-            "ESTADO DE ADMINISTRATIVO": "Estado Admin"
-        }
-    )
-
-else:
-    if df.empty:
-        st.info("Cargando datos... Si esto tarda, verifica que el Sheet esté publicado como CSV.")
-    else:
-        st.warning("No hay entregas programadas para la fecha seleccionada.")
+        st.warning("No hay datos disponibles.")
