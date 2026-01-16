@@ -37,13 +37,13 @@ def load_data():
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
             df["MES_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.month_name()
 
-        # 3. NORMALIZACIÓN DE COLUMNAS DE CONTACTO
-        # Busca Teléfono/Celular
-        col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c), None)
+        # 3. NORMALIZACIÓN DE CONTACTO
+        # Busca cualquier columna que parezca teléfono (Celular, Telefono, Tel, Movil)
+        col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c or "MOVIL" in c), None)
         if col_tel: 
             df["TELEFONO_CLEAN"] = df[col_tel]
         
-        # Busca Correo/Mail
+        # Busca Correo
         col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c or "EMAIL" in c), None)
         if col_mail: 
             df["CORREO_CLEAN"] = df[col_mail]
@@ -69,12 +69,12 @@ if opcion == "📅 Planificación Entregas":
     st.sidebar.header("Filtros de Agenda")
 
     if not df.empty and "FECHA_ENTREGA_DT" in df.columns:
-        # 1. Filtro AÑO (Sidebar)
+        # 1. Filtro AÑO
         años = sorted(df["AÑO_ENTREGA"].dropna().unique().astype(int))
         año_sel = st.sidebar.selectbox("Año", options=años, index=len(años)-1)
         df_año = df[df["AÑO_ENTREGA"] == año_sel]
         
-        # 2. Filtro MES (Sidebar)
+        # 2. Filtro MES
         meses_nombres = df_año["MES_ENTREGA"].unique()
         meses_nums = df_año["N_MES_ENTREGA"].unique()
         mapa_meses = dict(zip(meses_nombres, meses_nums))
@@ -83,19 +83,19 @@ if opcion == "📅 Planificación Entregas":
             mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]))
             df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
             
-            # 3. FILTRO DE DÍA ESPECÍFICO (En pantalla principal)
+            # 3. FILTRO DE DÍA ESPECÍFICO
             col_filtro_dia, col_metricas = st.columns([1, 3])
             
             with col_filtro_dia:
                 st.markdown("##### 📆 Filtrar día puntual")
                 dia_filtro = st.date_input("Seleccionar Fecha", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max())
             
-            # Aplicamos filtro de día si el usuario seleccionó uno
+            # Aplicar filtro de día
             if dia_filtro:
                 df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
                 titulo_tabla = f"Cronograma del día {dia_filtro.strftime('%d/%m/%Y')}"
             else:
-                df_final = df_mes # Mostramos todo el mes si no elige día
+                df_final = df_mes
                 titulo_tabla = f"Cronograma Mensual - {mes_sel}"
 
             # --- VISUALIZACIÓN ---
@@ -109,28 +109,32 @@ if opcion == "📅 Planificación Entregas":
             # --- TABLA CRONOGRAMA ---
             st.subheader(f"📋 {titulo_tabla}")
             
-            # Definimos las columnas solicitadas
+            # LISTA DE COLUMNAS ACTUALIZADA (Agregadas MARCA y TELEFONO)
             cols_agenda = [
                 "FECHA_ENTREGA_DT",
                 "HS DE ENTREGA AL CLIENTE",
                 "CLIENTE",
+                "MARCA",            # <--- AGREGADO
+                "MODELO",           # Agregué Modelo también porque suele ir junto a Marca
                 "CANAL DE VENTA",
-                "TELEFONO_CLEAN",
+                "TELEFONO_CLEAN",   # <--- AGREGADO (Usamos la columna limpia)
                 "CORREO_CLEAN",
                 "VENDEDOR"
             ]
             
-            # Mapeo para nombres bonitos
+            # Configuración visual de columnas
             config_columnas = {
                 "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                "HS DE ENTREGA AL CLIENTE": "Hora Entrega",
+                "HS DE ENTREGA AL CLIENTE": "Hora",
                 "TELEFONO_CLEAN": "Teléfono",
                 "CORREO_CLEAN": "Correo",
                 "CANAL DE VENTA": "Canal",
-                "VENDEDOR": "Vendedor"
+                "VENDEDOR": "Vendedor",
+                "MARCA": "Marca",
+                "MODELO": "Modelo"
             }
             
-            # Filtramos solo las columnas que realmente existan
+            # Filtramos solo las columnas que existen en el Excel para no dar error
             cols_reales = [c for c in cols_agenda if c in df_final.columns]
             
             st.dataframe(
@@ -155,7 +159,7 @@ elif opcion == "📦 Control de Stock":
     df_stock = df.copy()
 
     if not df_stock.empty:
-        # Filtros laterales
+        # Filtros
         if "AÑO_ARRIBO" in df_stock.columns:
             usar_filtro = st.sidebar.checkbox("Filtrar por Fecha Arribo")
             if usar_filtro:
