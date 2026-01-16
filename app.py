@@ -9,7 +9,7 @@ st.title("🚗 Programación de Entregas 0km")
 # --- CONEXIÓN CON GOOGLE SHEETS ---
 # Aquí usaremos un truco simple para leerlo si es público o si publicaste en la web como CSV.
 # Reemplaza la URL de abajo con la tuya de "Publicar en la web > CSV"
-sheet_url = "https://docs.google.com/spreadsheets/d/15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8/edit?gid=1504374770#gid=1504374770"
+sheet_url = "https://docs.google.com/spreadsheets/d/15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8/export?format=csv&gid=1504374770"
 
 @st.cache_data(ttl=300) # Actualiza cada 5 minutos
 def cargar_datos():
