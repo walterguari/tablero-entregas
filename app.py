@@ -54,6 +54,7 @@ if not df.empty and "FECHA_OFICIAL" in df.columns:
     # 2. Filtro MES (Dinámico según el año)
     meses_disponibles = df_año["N_MES"].unique()
     meses_nombres = df_año["MES"].unique()
+    # Creamos mapa de mes nombre -> numero
     mapa_meses = dict(zip(meses_nombres, meses_disponibles))
     
     # Ordenamos los meses cronológicamente
@@ -79,5 +80,53 @@ if not df_final.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Vehículos a Entregar", len(df_final))
     col2.metric("Semanas con Actividad", df_final["SEMANA"].nunique())
-    # Intentamos contar marcas si existe la columna
+    
+    # ESTA PARTE ES LA QUE DABA ERROR (Ya corregida con sangría)
     if "MARCA" in df_final.columns:
+        col3.metric("Marcas Distintas", len(df_final["MARCA"].unique()))
+    else:
+        col3.metric("Marcas", "N/A")
+
+    # --- 1. RESUMEN SEMANAL (Visual) ---
+    st.subheader("📊 Distribución Semanal")
+    conteo_semanal = df_final["SEMANA"].value_counts().sort_index().reset_index()
+    conteo_semanal.columns = ["Semana #", "Cantidad Autos"]
+    st.bar_chart(conteo_semanal.set_index("Semana #"))
+
+    # --- 2. TABLA DE DETALLE ---
+    st.subheader("📋 Listado de Vehículos a Entregar")
+    
+    # Seleccionamos las columnas más importantes basadas en tu imagen
+    cols_posibles = [
+        "FECHA_OFICIAL", 
+        "HS DE ENTREGA AL CLIENTE", 
+        "CLIENTE", 
+        "MARCA", 
+        "MODELO", 
+        "DESCRIPCION COLOR", 
+        "VIN", 
+        "UBICACION",
+        "ESTADO DE ADMINISTRATIVO"
+    ]
+    
+    # Filtramos solo las que existen en tu Excel
+    cols_reales = [c for c in cols_posibles if c in df_final.columns]
+    
+    # Mostramos la tabla ordenada por fecha
+    st.dataframe(
+        df_final[cols_reales].sort_values(by="FECHA_OFICIAL"),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "FECHA_OFICIAL": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
+            "HS DE ENTREGA AL CLIENTE": "Hora",
+            "DESCRIPCION COLOR": "Color",
+            "ESTADO DE ADMINISTRATIVO": "Estado Admin"
+        }
+    )
+
+else:
+    if df.empty:
+        st.info("Cargando datos... Si esto tarda, verifica que el Sheet esté publicado como CSV.")
+    else:
+        st.warning("No hay entregas programadas para la fecha seleccionada.")
