@@ -34,10 +34,4 @@ def load_data():
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
-            df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
-            df["MES_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.month_name()
-
-        # 3. NORMALIZACIÓN DE COLUMNAS DE CONTACTO (Para que las encuentre siempre)
-        # Busca Teléfono/Celular
-        col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c), None)
-        if col_tel: df["TELEFONO_CLEAN"] = df[col_tel
+            df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.
