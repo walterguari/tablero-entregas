@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import os # Para verificar si existe el logo
+import os
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Portal Autociel", layout="wide", initial_sidebar_state="expanded")
@@ -15,6 +15,13 @@ st.markdown("""
         height: 3.5em;
         font-weight: bold;
         border: 1px solid #e0e0e0;
+    }
+    /* Estilo para alerta de mantenimiento */
+    .stMetric {
+        background-color: #ffebee;
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #ffcdd2;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -30,7 +37,7 @@ def load_data():
         df = pd.read_csv(URL)
         df.columns = df.columns.str.strip().str.upper()
         
-        # --- PROCESAMIENTO FECHAS ---
+        # PROCESAMIENTO FECHAS
         col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
         if not col_entrega: col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)   
         if col_entrega:
@@ -63,16 +70,16 @@ if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agen
 # ==========================================
 # BARRA LATERAL (LOGO + MENÚ)
 # ==========================================
-
-# 1. MOSTRAR LOGO (Si existe el archivo)
-if os.path.exists("logo.png"):
+if os.path.exists("logo.png.png"):
+    st.sidebar.image("logo.png.png", use_container_width=True)
+elif os.path.exists("logo.png"):
     st.sidebar.image("logo.png", use_container_width=True)
 else:
-    # Si te olvidaste de subirlo, muestra solo texto para no dar error
-    st.sidebar.warning("Sube 'logo.png' a GitHub")
+    st.sidebar.warning("Sube el logo a GitHub")
 
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock"])
+# AQUI AGREGAMOS LA NUEVA OPCION AL MENU
+opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento"])
 st.sidebar.markdown("---")
 
 # ==========================================
@@ -91,7 +98,6 @@ if opcion == "📅 Planificación Entregas":
         entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
         programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
         
-        # Botones Superiores
         c1, c2, c3 = st.columns(3)
         if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True):
             st.session_state.modo_vista_agenda = 'entregados'
@@ -102,7 +108,6 @@ if opcion == "📅 Planificación Entregas":
         
         st.divider()
 
-        # Lógica de Vistas
         df_final = pd.DataFrame()
         titulo = ""
         
@@ -116,7 +121,7 @@ if opcion == "📅 Planificación Entregas":
             df_final = programados
             titulo = f"Agenda Pendiente - {año_sel}"
             
-        else: # Vista Mes
+        else:
             st.sidebar.header("Filtrar Mes")
             meses_nombres = df_año["MES_ENTREGA"].unique()
             meses_nums = df_año["N_MES_ENTREGA"].unique()
@@ -202,3 +207,68 @@ elif opcion == "📦 Control de Stock":
         cols_stock = ["VIN", "MARCA", "MODELO", "DESCRIPCION COLOR", "FECHA DE FABRICACION", "ANTIGUEDAD DE STOCK", "ANTIGÜEDAD DE STOCK", "UBICACION", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ESTADO"]
         cols_reales = [c for c in cols_stock if c in df_mostrar.columns]
         st.dataframe(df_mostrar[cols_reales], use_container_width=True, hide_index=True)
+
+# ==========================================
+# VISTA 3: MANTENIMIENTO (NUEVA)
+# ==========================================
+elif opcion == "🛠️ Control Mantenimiento":
+    st.title("🛠️ Mantenimiento Preventivo (Stock > 30 días)")
+    
+    if not df.empty and "FECHA_ARRIBO_DT" in df.columns:
+        # 1. Filtros Globales
+        st.sidebar.header("Filtros Mantenimiento")
+        marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
+        
+        # 2. Lógica de Mantenimiento
+        hoy = pd.Timestamp.now().normalize()
+        
+        # Copia para no romper el original
+        df_mant = df.copy()
+        
+        # Filtramos solo lo que NO está entregado (asumiendo que si tiene fecha entrega futura o null está en stock)
+        # O usamos la columna ESTADO si existe
+        if "ESTADO" in df_mant.columns:
+            df_mant = df_mant[df_mant["ESTADO"] != "ENTREGADO"]
+            
+        # Filtro de marca si seleccionó alguna
+        if marcas:
+            df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
+            
+        # Calcular Días en Stock
+        df_mant["DIAS_STOCK_CALC"] = (hoy - df_mant["FECHA_ARRIBO_DT"]).dt.days
+        
+        # REGLA DE ORO: Filtrar los que tienen más de 30 días
+        df_alerta = df_mant[df_mant["DIAS_STOCK_CALC"] >= 30].sort_values("DIAS_STOCK_CALC", ascending=False)
+        
+        # --- MÉTRICAS DE ALERTA ---
+        col_alerta, col_info = st.columns([1, 3])
+        
+        with col_alerta:
+            st.metric("🚨 Requieren Mantenimiento", f"{len(df_alerta)} Vehículos", delta="Revisar urgente", delta_color="inverse")
+            
+        with col_info:
+            st.info("💡 Este listado muestra únicamente las unidades en stock con **30 días o más** desde su fecha de arribo.")
+
+        st.divider()
+        
+        if not df_alerta.empty:
+            st.subheader("📋 Unidades Pendientes de Revisión")
+            
+            # Definir columnas exactas solicitadas + Agrego Días para referencia
+            cols_solicitadas = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "UBICACION"]
+            cols_finales = [c for c in cols_solicitadas if c in df_alerta.columns]
+            
+            st.dataframe(
+                df_alerta[cols_finales],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "FECHA_ARRIBO_DT": st.column_config.DateColumn("Fecha Arribo", format="DD/MM/YYYY"),
+                    "DIAS_STOCK_CALC": st.column_config.NumberColumn("Días en Stock", format="%d días"),
+                }
+            )
+        else:
+            st.success("✅ ¡Todo el stock está al día! No hay unidades con más de 30 días sin entregar.")
+            
+    else:
+        st.warning("No se encontraron datos de 'Fecha de Arribo' para calcular el mantenimiento.")
