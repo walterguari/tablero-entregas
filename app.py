@@ -17,10 +17,10 @@ st.markdown("""
         border: 1px solid #e0e0e0;
     }
     .stMetric {
-        background-color: #ffebee;
+        background-color: #fff3e0; /* Naranja suave para alertas */
         padding: 10px;
         border-radius: 5px;
-        border: 1px solid #ffcdd2;
+        border: 1px solid #ffe0b2;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -207,46 +207,74 @@ elif opcion == "📦 Control de Stock":
         st.dataframe(df_mostrar[cols_reales], use_container_width=True, hide_index=True)
 
 # ==========================================
-# VISTA 3: MANTENIMIENTO (Lógica Actualizada)
+# VISTA 3: MANTENIMIENTO INTELIGENTE (ACTUALIZADA)
 # ==========================================
 elif opcion == "🛠️ Control Mantenimiento":
-    st.title("🛠️ Mantenimiento Preventivo (Stock > 30 días)")
+    st.title("🛠️ Auditoría de Mantenimiento")
     
     if not df.empty and "FECHA_ARRIBO_DT" in df.columns:
-        st.sidebar.header("Filtros Mantenimiento")
+        st.sidebar.header("Filtros")
         marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
         
         hoy = pd.Timestamp.now().normalize()
         df_mant = df.copy()
         
-        # --- LÓGICA DE EXCLUSIÓN: TODO MENOS "ENTREGADO" ---
+        # 1. Quitar entregados
         if "ESTADO" in df_mant.columns:
-            # Convertimos a mayúsculas y quitamos espacios para comparar seguro
             df_mant = df_mant[df_mant["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO"]
             
         if marcas:
             df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
             
-        # Calcular Días en Stock
+        # 2. Calcular Días en Stock REALES
         df_mant["DIAS_STOCK_CALC"] = (hoy - df_mant["FECHA_ARRIBO_DT"]).dt.days
         
-        # FILTRO DE 30 DÍAS
-        df_alerta = df_mant[df_mant["DIAS_STOCK_CALC"] >= 30].sort_values("DIAS_STOCK_CALC", ascending=False)
-        
-        col_alerta, col_info = st.columns([1, 3])
-        with col_alerta:
-            st.metric("🚨 Requieren Mantenimiento", f"{len(df_alerta)} Vehículos", delta="Revisar urgente", delta_color="inverse")
-            
-        with col_info:
-            st.info("💡 Este listado incluye **todos los estados** (Exhibición, Taller, Bloqueado, etc.) excepto 'Entregado'.")
+        # 3. IDENTIFICAR COLUMNAS DE CONTROL (Buscamos "REALIZADO" y los dias)
+        # Esto busca automáticamente columnas como "a) ¿Realizado a 30 dias?"
+        cols_control = {
+            30: next((c for c in df.columns if "30" in c and "REALIZADO" in c), None),
+            60: next((c for c in df.columns if "60" in c and "REALIZADO" in c), None),
+            90: next((c for c in df.columns if "90" in c and "REALIZADO" in c), None),
+            180: next((c for c in df.columns if "180" in c and "REALIZADO" in c), None),
+            360: next((c for c in df.columns if "360" in c and "REALIZADO" in c), None),
+            540: next((c for c in df.columns if "540" in c and "REALIZADO" in c), None),
+        }
 
-        st.divider()
+        # 4. LÓGICA DE ALERTA: ¿Tiene la edad Y NO tiene el OK?
+        # Creamos una lista para guardar los que fallan
+        alertas = []
         
-        if not df_alerta.empty:
-            st.subheader("📋 Unidades Pendientes de Revisión")
+        for index, row in df_mant.iterrows():
+            dias = row["DIAS_STOCK_CALC"]
+            motivo = []
             
-            cols_solicitadas = ["VIN", "MARCA", "MODELO", "ESTADO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "UBICACION"]
-            cols_finales = [c for c in cols_solicitadas if c in df_alerta.columns]
+            # Revisamos cada intervalo
+            for intervalo, columna in cols_control.items():
+                if columna and dias >= intervalo:
+                    valor = str(row[columna]).strip().upper()
+                    # Si NO dice OK y NO dice N/A -> ALERTA
+                    if valor not in ["OK", "N/A", "SI"]:
+                        motivo.append(f"Falta control {intervalo} días")
+            
+            # Si acumuló motivos, lo guardamos en la lista de alertas
+            if motivo:
+                # Tomamos solo el motivo más urgente (el mayor intervalo vencido o todos)
+                row["PENDIENTE"] = ", ".join(motivo)
+                alertas.append(row)
+        
+        # Crear DataFrame de Alertas
+        if alertas:
+            df_alerta = pd.DataFrame(alertas)
+            df_alerta = df_alerta.sort_values("DIAS_STOCK_CALC", ascending=False)
+            
+            col_kpi, col_txt = st.columns([1,3])
+            col_kpi.metric("⚠️ Vehículos Observados", len(df_alerta), delta="Acción requerida", delta_color="inverse")
+            col_txt.info(f"Se muestran vehículos que han cumplido los días de stock pero **NO tienen 'OK' o 'N/A'** en la columna correspondiente.")
+            
+            st.divider()
+            
+            cols_base = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "PENDIENTE", "UBICACION"]
+            cols_finales = [c for c in cols_base if c in df_alerta.columns]
             
             st.dataframe(
                 df_alerta[cols_finales],
@@ -254,11 +282,12 @@ elif opcion == "🛠️ Control Mantenimiento":
                 hide_index=True,
                 column_config={
                     "FECHA_ARRIBO_DT": st.column_config.DateColumn("Fecha Arribo", format="DD/MM/YYYY"),
-                    "DIAS_STOCK_CALC": st.column_config.NumberColumn("Días en Stock", format="%d días"),
+                    "DIAS_STOCK_CALC": st.column_config.NumberColumn("Días Stock", format="%d días"),
+                    "PENDIENTE": st.column_config.TextColumn("⚠️ Control Faltante", width="medium"),
                 }
             )
         else:
-            st.success("✅ ¡Todo el stock está al día!")
-            
+            st.success("✅ ¡Excelente! Todos los vehículos tienen sus controles 'OK' o 'N/A' al día.")
+
     else:
-        st.warning("No se encontraron datos de 'Fecha de Arribo'.")
+        st.warning("No se encontraron datos de Fecha de Arribo para calcular.")
