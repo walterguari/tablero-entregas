@@ -16,7 +16,6 @@ st.markdown("""
         font-weight: bold;
         border: 1px solid #e0e0e0;
     }
-    /* Estilo para alerta de mantenimiento */
     .stMetric {
         background-color: #ffebee;
         padding: 10px;
@@ -78,7 +77,6 @@ else:
     st.sidebar.warning("Sube el logo a GitHub")
 
 st.sidebar.title("Navegación")
-# AQUI AGREGAMOS LA NUEVA OPCION AL MENU
 opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento"])
 st.sidebar.markdown("---")
 
@@ -209,53 +207,45 @@ elif opcion == "📦 Control de Stock":
         st.dataframe(df_mostrar[cols_reales], use_container_width=True, hide_index=True)
 
 # ==========================================
-# VISTA 3: MANTENIMIENTO (NUEVA)
+# VISTA 3: MANTENIMIENTO (Lógica Actualizada)
 # ==========================================
 elif opcion == "🛠️ Control Mantenimiento":
     st.title("🛠️ Mantenimiento Preventivo (Stock > 30 días)")
     
     if not df.empty and "FECHA_ARRIBO_DT" in df.columns:
-        # 1. Filtros Globales
         st.sidebar.header("Filtros Mantenimiento")
         marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
         
-        # 2. Lógica de Mantenimiento
         hoy = pd.Timestamp.now().normalize()
-        
-        # Copia para no romper el original
         df_mant = df.copy()
         
-        # Filtramos solo lo que NO está entregado (asumiendo que si tiene fecha entrega futura o null está en stock)
-        # O usamos la columna ESTADO si existe
+        # --- LÓGICA DE EXCLUSIÓN: TODO MENOS "ENTREGADO" ---
         if "ESTADO" in df_mant.columns:
-            df_mant = df_mant[df_mant["ESTADO"] != "ENTREGADO"]
+            # Convertimos a mayúsculas y quitamos espacios para comparar seguro
+            df_mant = df_mant[df_mant["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO"]
             
-        # Filtro de marca si seleccionó alguna
         if marcas:
             df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
             
         # Calcular Días en Stock
         df_mant["DIAS_STOCK_CALC"] = (hoy - df_mant["FECHA_ARRIBO_DT"]).dt.days
         
-        # REGLA DE ORO: Filtrar los que tienen más de 30 días
+        # FILTRO DE 30 DÍAS
         df_alerta = df_mant[df_mant["DIAS_STOCK_CALC"] >= 30].sort_values("DIAS_STOCK_CALC", ascending=False)
         
-        # --- MÉTRICAS DE ALERTA ---
         col_alerta, col_info = st.columns([1, 3])
-        
         with col_alerta:
             st.metric("🚨 Requieren Mantenimiento", f"{len(df_alerta)} Vehículos", delta="Revisar urgente", delta_color="inverse")
             
         with col_info:
-            st.info("💡 Este listado muestra únicamente las unidades en stock con **30 días o más** desde su fecha de arribo.")
+            st.info("💡 Este listado incluye **todos los estados** (Exhibición, Taller, Bloqueado, etc.) excepto 'Entregado'.")
 
         st.divider()
         
         if not df_alerta.empty:
             st.subheader("📋 Unidades Pendientes de Revisión")
             
-            # Definir columnas exactas solicitadas + Agrego Días para referencia
-            cols_solicitadas = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "UBICACION"]
+            cols_solicitadas = ["VIN", "MARCA", "MODELO", "ESTADO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "UBICACION"]
             cols_finales = [c for c in cols_solicitadas if c in df_alerta.columns]
             
             st.dataframe(
@@ -268,7 +258,7 @@ elif opcion == "🛠️ Control Mantenimiento":
                 }
             )
         else:
-            st.success("✅ ¡Todo el stock está al día! No hay unidades con más de 30 días sin entregar.")
+            st.success("✅ ¡Todo el stock está al día!")
             
     else:
-        st.warning("No se encontraron datos de 'Fecha de Arribo' para calcular el mantenimiento.")
+        st.warning("No se encontraron datos de 'Fecha de Arribo'.")
