@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from datetime import timedelta
 import os
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -18,10 +17,10 @@ st.markdown("""
         border: 1px solid #e0e0e0;
     }
     .stMetric {
-        background-color: #fff3e0;
+        background-color: #ffebee;
         padding: 10px;
         border-radius: 5px;
-        border: 1px solid #ffe0b2;
+        border: 1px solid #ffcdd2;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -66,10 +65,9 @@ df = load_data()
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
 if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agenda = 'mes'
-if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos' # nuevo estado
 
 # ==========================================
-# BARRA LATERAL
+# BARRA LATERAL (LOGO + MENÚ)
 # ==========================================
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
@@ -209,142 +207,58 @@ elif opcion == "📦 Control de Stock":
         st.dataframe(df_mostrar[cols_reales], use_container_width=True, hide_index=True)
 
 # ==========================================
-# VISTA 3: MANTENIMIENTO (CON HOY Y SEMANA)
+# VISTA 3: MANTENIMIENTO (Lógica Actualizada)
 # ==========================================
 elif opcion == "🛠️ Control Mantenimiento":
-    st.title("🛠️ Planificación de Taller")
+    st.title("🛠️ Mantenimiento Preventivo (Stock > 30 días)")
     
     if not df.empty and "FECHA_ARRIBO_DT" in df.columns:
-        st.sidebar.header("Filtros")
+        st.sidebar.header("Filtros Mantenimiento")
         marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
         
-        # FECHAS CLAVE
         hoy = pd.Timestamp.now().normalize()
-        inicio_semana = hoy - timedelta(days=hoy.weekday()) # Lunes
-        fin_semana = inicio_semana + timedelta(days=6) # Domingo
-
         df_mant = df.copy()
         
-        # 1. Filtros base
+        # --- LÓGICA DE EXCLUSIÓN: TODO MENOS "ENTREGADO" ---
         if "ESTADO" in df_mant.columns:
+            # Convertimos a mayúsculas y quitamos espacios para comparar seguro
             df_mant = df_mant[df_mant["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO"]
+            
         if marcas:
             df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
             
-        # 2. Configuración de Intervalos
-        cols_control = {
-            30: next((c for c in df.columns if "30" in c and "REALIZADO" in c), None),
-            60: next((c for c in df.columns if "60" in c and "REALIZADO" in c), None),
-            90: next((c for c in df.columns if "90" in c and "REALIZADO" in c), None),
-            180: next((c for c in df.columns if "180" in c and "REALIZADO" in c), None),
-            360: next((c for c in df.columns if "360" in c and "REALIZADO" in c), None),
-        }
-
-        # 3. Clasificación de vehículos
-        lista_hoy = []
-        lista_semana = []
-        lista_atrasados = [] # Todo lo pendiente, incluido lo de hoy
+        # Calcular Días en Stock
+        df_mant["DIAS_STOCK_CALC"] = (hoy - df_mant["FECHA_ARRIBO_DT"]).dt.days
         
-        for index, row in df_mant.iterrows():
-            if pd.isnull(row["FECHA_ARRIBO_DT"]): continue
-            
-            fecha_arribo = row["FECHA_ARRIBO_DT"]
-            motivos_hoy = []
-            motivos_semana = []
-            motivos_atrasados = []
-            
-            # Revisamos cada control (30, 60...)
-            for intervalo, columna in cols_control.items():
-                if not columna: continue
-                
-                # Calculamos cuándo CAE o CAYÓ ese control
-                fecha_control = fecha_arribo + timedelta(days=intervalo)
-                valor_celda = str(row[columna]).strip().upper()
-                
-                # Si NO está hecho (ni OK ni N/A)
-                if valor_celda not in ["OK", "N/A", "SI"]:
-                    
-                    # A. ¿Vence HOY?
-                    if fecha_control == hoy:
-                        motivos_hoy.append(f"Control {intervalo} días")
-                    
-                    # B. ¿Vence ESTA SEMANA? (Lunes a Domingo)
-                    if inicio_semana <= fecha_control <= fin_semana:
-                        motivos_semana.append(f"Control {intervalo} días ({fecha_control.strftime('%d/%m')})")
-                    
-                    # C. ¿Está PENDIENTE? (Ya pasó la fecha o es hoy, y no se hizo)
-                    if hoy >= fecha_control:
-                        motivos_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_control.strftime('%d/%m')})")
-
-            # Guardamos en las listas correspondientes
-            if motivos_hoy:
-                row_copy = row.copy()
-                row_copy["TAREA"] = ", ".join(motivos_hoy)
-                lista_hoy.append(row_copy)
-                
-            if motivos_semana:
-                row_copy = row.copy()
-                row_copy["TAREA"] = ", ".join(motivos_semana)
-                lista_semana.append(row_copy)
-                
-            if motivos_atrasados:
-                row_copy = row.copy()
-                row_copy["TAREA"] = motivos_atrasados[-1] # Mostramos el más crítico
-                lista_atrasados.append(row_copy)
-
-        # --- BOTONES DE NAVEGACIÓN ---
-        col1, col2, col3 = st.columns(3)
+        # FILTRO DE 30 DÍAS
+        df_alerta = df_mant[df_mant["DIAS_STOCK_CALC"] >= 30].sort_values("DIAS_STOCK_CALC", ascending=False)
         
-        if col1.button(f"📅 Vence Hoy ({len(lista_hoy)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'hoy'
+        col_alerta, col_info = st.columns([1, 3])
+        with col_alerta:
+            st.metric("🚨 Requieren Mantenimiento", f"{len(df_alerta)} Vehículos", delta="Revisar urgente", delta_color="inverse")
             
-        if col2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'semana'
-            
-        if col3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'todos'
+        with col_info:
+            st.info("💡 Este listado incluye **todos los estados** (Exhibición, Taller, Bloqueado, etc.) excepto 'Entregado'.")
 
         st.divider()
-
-        # --- MOSTRAR TABLA SEGÚN SELECCIÓN ---
-        df_mostrar = pd.DataFrame()
-        titulo_tabla = ""
-        msg_tabla = ""
         
-        if st.session_state.filtro_mantenimiento == 'hoy':
-            titulo_tabla = "🚗 Vehículos para revisar HOY"
-            msg_tabla = f"Estos vehículos cumplen el plazo exacto hoy **{hoy.strftime('%d/%m/%Y')}**."
-            df_mostrar = pd.DataFrame(lista_hoy)
+        if not df_alerta.empty:
+            st.subheader("📋 Unidades Pendientes de Revisión")
             
-        elif st.session_state.filtro_mantenimiento == 'semana':
-            titulo_tabla = "🗓️ Planificación Semanal"
-            msg_tabla = f"Vehículos que vencen entre el **{inicio_semana.strftime('%d/%m')}** y el **{fin_semana.strftime('%d/%m')}**."
-            df_mostrar = pd.DataFrame(lista_semana)
-            
-        else: # TODOS
-            titulo_tabla = "⚠️ Listado Completo de Pendientes"
-            msg_tabla = "Muestra todos los vehículos que **ya cumplieron** el plazo y no tienen el OK (incluye atrasados)."
-            df_mostrar = pd.DataFrame(lista_atrasados)
-
-        # Renderizar tabla
-        if not df_mostrar.empty:
-            st.subheader(titulo_tabla)
-            st.info(msg_tabla)
-            
-            cols_base = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "TAREA", "UBICACION"]
-            cols_finales = [c for c in cols_base if c in df_mostrar.columns]
+            cols_solicitadas = ["VIN", "MARCA", "MODELO", "ESTADO", "FECHA_ARRIBO_DT", "DIAS_STOCK_CALC", "UBICACION"]
+            cols_finales = [c for c in cols_solicitadas if c in df_alerta.columns]
             
             st.dataframe(
-                df_mostrar[cols_finales],
+                df_alerta[cols_finales],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "FECHA_ARRIBO_DT": st.column_config.DateColumn("Fecha Arribo", format="DD/MM/YYYY"),
-                    "TAREA": st.column_config.TextColumn("Tarea a realizar", width="medium"),
+                    "DIAS_STOCK_CALC": st.column_config.NumberColumn("Días en Stock", format="%d días"),
                 }
             )
         else:
-            st.success(f"✅ No hay vehículos en la categoría: {titulo_tabla}")
-
+            st.success("✅ ¡Todo el stock está al día!")
+            
     else:
-        st.warning("No se encontraron datos de Fecha de Arribo.")
+        st.warning("No se encontraron datos de 'Fecha de Arribo'.")
