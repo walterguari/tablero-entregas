@@ -63,13 +63,13 @@ def load_data():
 
 df = load_data()
 
-# --- MEMORIA DE ESTADO (Variables para que funcionen los botones) ---
+# --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
 if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agenda = 'mes'
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
-# BARRA LATERAL (LOGO + MENÚ)
+# BARRA LATERAL
 # ==========================================
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
@@ -98,13 +98,15 @@ if opcion == "📅 Planificación Entregas":
         entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
         programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
         
-        # --- BOTONES DE ENTREGAS ---
+        # --- BOTONES DE ENTREGAS (CORREGIDO EL BOTÓN DEL MES) ---
         c1, c2, c3 = st.columns(3)
         if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True):
             st.session_state.modo_vista_agenda = 'entregados'
         if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True):
             st.session_state.modo_vista_agenda = 'programados'
-        if c3.button(f"📅 Ver por Mes ({len(df_año)})", use_container_width=True):
+        
+        # AQUÍ ESTÁ EL CAMBIO: Quitamos el número confuso
+        if c3.button("📅 Filtrar por Mes / Día", use_container_width=True):
             st.session_state.modo_vista_agenda = 'mes'
         
         st.divider()
@@ -138,10 +140,12 @@ if opcion == "📅 Planificación Entregas":
                 
                 if dia_filtro:
                     df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
-                    titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')}"
+                    # CAMBIO: Agregamos el contador aquí
+                    titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
                 else:
                     df_final = df_mes
-                    titulo = f"Cronograma Mensual - {mes_sel}"
+                    # CAMBIO: Agregamos el contador aquí
+                    titulo = f"Cronograma Mensual - {mes_sel} ({len(df_final)})"
             else:
                 st.warning("No hay datos mensuales.")
 
@@ -180,7 +184,6 @@ elif opcion == "📦 Control de Stock":
 
         st.markdown("### 🔍 Estado del Inventario")
         
-        # --- AQUÍ ESTÁN LOS BOTONES DE ESTADO (EXHIBICIÓN, ETC) ---
         if "ESTADO" in df_stock.columns:
             conteo = df_stock["ESTADO"].value_counts()
             iconos = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", 
@@ -221,20 +224,17 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.sidebar.header("Filtros")
         marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
         
-        # FECHAS CLAVE
         hoy = pd.Timestamp.now().normalize()
         inicio_semana = hoy - timedelta(days=hoy.weekday())
         fin_semana = inicio_semana + timedelta(days=6)
 
         df_mant = df.copy()
         
-        # Filtros
         if "ESTADO" in df_mant.columns:
             df_mant = df_mant[df_mant["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO"]
         if marcas:
             df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
             
-        # Detectar columnas de control (30, 60, etc)
         cols_control = {
             30: next((c for c in df.columns if "30" in c and "REALIZADO" in c), None),
             60: next((c for c in df.columns if "60" in c and "REALIZADO" in c), None),
@@ -244,7 +244,6 @@ elif opcion == "🛠️ Control Mantenimiento":
             540: next((c for c in df.columns if "540" in c and "REALIZADO" in c), None),
         }
 
-        # Listas de tareas
         lista_hoy = []
         lista_semana = []
         lista_atrasados = []
@@ -263,18 +262,12 @@ elif opcion == "🛠️ Control Mantenimiento":
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 
-                # REGLA: Si dice OK, N/A o SI, saltamos
                 if estado_celda in ["OK", "N/A", "SI"]: continue
                 
-                # A. Vence HOY
                 if fecha_vencimiento == hoy:
                     motivos_hoy.append(f"Control {intervalo} días")
-                
-                # B. Vence ESTA SEMANA
                 if inicio_semana <= fecha_vencimiento <= fin_semana:
                     motivos_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
-                
-                # C. ATRASADO o HOY (Pendiente)
                 if hoy >= fecha_vencimiento:
                     motivos_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
 
@@ -291,20 +284,16 @@ elif opcion == "🛠️ Control Mantenimiento":
                 r["TAREA"] = motivos_atrasados[-1]
                 lista_atrasados.append(r)
 
-        # --- AQUÍ ESTÁN LOS BOTONES NUEVOS DE MANTENIMIENTO ---
         c1, c2, c3 = st.columns(3)
         if c1.button(f"📅 Vence HOY ({len(lista_hoy)})", use_container_width=True):
             st.session_state.filtro_mantenimiento = 'hoy'
-            
         if c2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True):
             st.session_state.filtro_mantenimiento = 'semana'
-            
         if c3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True):
             st.session_state.filtro_mantenimiento = 'todos'
 
         st.divider()
 
-        # Mostrar tabla
         df_final = pd.DataFrame()
         titulo = ""
         mensaje = ""
@@ -325,12 +314,4 @@ elif opcion == "🛠️ Control Mantenimiento":
         if not df_final.empty:
             st.subheader(titulo)
             st.info(mensaje)
-            cols_base = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "TAREA", "UBICACION"]
-            cols_reales = [c for c in cols_base if c in df_final.columns]
-            st.dataframe(df_final[cols_reales], use_container_width=True, hide_index=True, column_config={"FECHA_ARRIBO_DT": st.column_config.DateColumn("Fecha Arribo", format="DD/MM/YYYY")})
-        else:
-            if st.session_state.filtro_mantenimiento != 'todos': st.success(f"✅ ¡Nada pendiente en: {titulo}!")
-            else: st.success("✅ ¡Felicitaciones! No hay mantenimientos atrasados.")
-
-    else:
-        st.warning("No se encontraron datos de Fecha de Arribo.")
+            cols_base = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "TAREA", "UB
