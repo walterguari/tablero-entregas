@@ -23,6 +23,10 @@ st.markdown("""
         border-radius: 5px;
         border: 1px solid #ffe0b2;
     }
+    .plano-img {
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -58,7 +62,7 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
 df = load_data()
@@ -69,18 +73,19 @@ if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agen
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
-# BARRA LATERAL
+# BARRA LATERAL (LOGO)
 # ==========================================
-# Busca el logo con varias extensiones posibles por seguridad
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
 elif os.path.exists("logo.png"):
     st.sidebar.image("logo.png", use_container_width=True)
 elif os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
+else:
+    st.sidebar.warning("Falta logo en GitHub")
 
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento", "📍 Mapa del Salón"])
+opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento", "🗺️ Plano del Salón"])
 st.sidebar.markdown("---")
 
 # ==========================================
@@ -104,7 +109,6 @@ if opcion == "📅 Planificación Entregas":
             st.session_state.modo_vista_agenda = 'entregados'
         if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True):
             st.session_state.modo_vista_agenda = 'programados'
-        
         if c3.button("📅 Filtrar por Mes / Día", use_container_width=True):
             st.session_state.modo_vista_agenda = 'mes'
         
@@ -117,12 +121,10 @@ if opcion == "📅 Planificación Entregas":
             st.info(f"Historial de entregas {año_sel}.")
             df_final = entregados
             titulo = f"Historial Entregado - {año_sel}"
-            
         elif st.session_state.modo_vista_agenda == 'programados':
             st.info(f"Próximas entregas a partir de hoy.")
             df_final = programados
             titulo = f"Agenda Pendiente - {año_sel}"
-            
         else:
             st.sidebar.header("Filtrar Mes")
             meses_nombres = df_año["MES_ENTREGA"].unique()
@@ -148,8 +150,11 @@ if opcion == "📅 Planificación Entregas":
 
         if not df_final.empty:
             st.subheader(f"📋 {titulo}")
-            cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"]
+            
+            # --- AQUÍ ESTÁ EL VIN AGREGADO ---
+            cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"]
             cols_reales = [c for c in cols_agenda if c in df_final.columns]
+            
             st.dataframe(
                 df_final[cols_reales].sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]),
                 use_container_width=True, hide_index=True,
@@ -255,7 +260,6 @@ elif opcion == "🛠️ Control Mantenimiento":
             
             for intervalo, columna in cols_control.items():
                 if not columna: continue
-                
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 
@@ -322,28 +326,30 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos de Fecha de Arribo.")
 
 # ==========================================
-# PESTAÑA 4: MAPA DEL SALÓN (NUEVA)
+# PESTAÑA 4: PLANO DEL SALÓN (VISTA SUPERIOR)
 # ==========================================
-elif opcion == "📍 Mapa del Salón":
-    st.title("📍 Distribución del Salón")
-    st.markdown("Vista actual del salón de ventas (Referencia).")
+elif opcion == "🗺️ Plano del Salón":
+    st.title("🗺️ Distribución del Salón")
+    st.markdown("Vista superior esquemática de las áreas de Peugeot y Citroën.")
     
-    # Creamos pestañas para cambiar de mapa
     tab_peugeot, tab_citroen = st.tabs(["🦁 Peugeot", "🔴 Citroën"])
     
     with tab_peugeot:
-        # Busca el archivo exacto que te pedí renombrar
         if os.path.exists("mapa_peugeot.jpg"):
             st.image("mapa_peugeot.jpg", use_container_width=True, caption="Salón Peugeot")
-        elif os.path.exists("Peugeot (2).jpeg"): # Por si acaso no lo renombraste
+        elif os.path.exists("Peugeot (2).jpeg"):
              st.image("Peugeot (2).jpeg", use_container_width=True, caption="Salón Peugeot")
+        elif os.path.exists("plano_peugeot.png"):
+             st.image("plano_peugeot.png", use_container_width=True, caption="Salón Peugeot")
         else:
-            st.info("ℹ️ Sube la imagen 'mapa_peugeot.jpg' a GitHub para verla aquí.")
+            st.warning("⚠️ No se encuentra la imagen del plano Peugeot. Sube 'mapa_peugeot.jpg' a GitHub.")
             
     with tab_citroen:
         if os.path.exists("mapa_citroen.jpg"):
             st.image("mapa_citroen.jpg", use_container_width=True, caption="Salón Citroën")
-        elif os.path.exists("Citroen.jpeg"): # Por si acaso
+        elif os.path.exists("Citroen.jpeg"):
              st.image("Citroen.jpeg", use_container_width=True, caption="Salón Citroën")
+        elif os.path.exists("plano_citroen.png"):
+             st.image("plano_citroen.png", use_container_width=True, caption="Salón Citroën")
         else:
-            st.info("ℹ️ Sube la imagen 'mapa_citroen.jpg' a GitHub para verla aquí.")
+            st.warning("⚠️ No se encuentra la imagen del plano Citroën. Sube 'mapa_citroen.jpg' a GitHub.")
