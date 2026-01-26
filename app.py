@@ -23,13 +23,9 @@ st.markdown("""
         border-radius: 5px;
         border: 1px solid #ffe0b2;
     }
-    /* Estilo para el contenedor del plano */
-    .plano-container {
-        border: 2px solid #e0e0e0;
-        padding: 20px;
-        border-radius: 15px;
-        background-color: #f9f9f9;
-        text-align: center;
+    .plano-img {
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -66,7 +62,7 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
 df = load_data()
@@ -77,17 +73,18 @@ if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agen
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
-# BARRA LATERAL
+# BARRA LATERAL (LOGO)
 # ==========================================
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
 elif os.path.exists("logo.png"):
     st.sidebar.image("logo.png", use_container_width=True)
+elif os.path.exists("logo.jpg"):
+    st.sidebar.image("logo.jpg", use_container_width=True)
 else:
-    st.sidebar.warning("Sube el logo a GitHub")
+    st.sidebar.warning("Falta logo en GitHub")
 
 st.sidebar.title("Navegación")
-# AGREGAMOS LA NUEVA OPCIÓN "MAPA DEL SALÓN"
 opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento", "🗺️ Plano del Salón"])
 st.sidebar.markdown("---")
 
@@ -112,7 +109,6 @@ if opcion == "📅 Planificación Entregas":
             st.session_state.modo_vista_agenda = 'entregados'
         if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True):
             st.session_state.modo_vista_agenda = 'programados'
-        
         if c3.button("📅 Filtrar por Mes / Día", use_container_width=True):
             st.session_state.modo_vista_agenda = 'mes'
         
@@ -125,12 +121,10 @@ if opcion == "📅 Planificación Entregas":
             st.info(f"Historial de entregas {año_sel}.")
             df_final = entregados
             titulo = f"Historial Entregado - {año_sel}"
-            
         elif st.session_state.modo_vista_agenda == 'programados':
             st.info(f"Próximas entregas a partir de hoy.")
             df_final = programados
             titulo = f"Agenda Pendiente - {año_sel}"
-            
         else:
             st.sidebar.header("Filtrar Mes")
             meses_nombres = df_año["MES_ENTREGA"].unique()
@@ -156,7 +150,8 @@ if opcion == "📅 Planificación Entregas":
 
         if not df_final.empty:
             st.subheader(f"📋 {titulo}")
-            cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"]
+            # --- AQUÍ AGREGAMOS LA COLUMNA VIN ---
+            cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"]
             cols_reales = [c for c in cols_agenda if c in df_final.columns]
             st.dataframe(
                 df_final[cols_reales].sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]),
@@ -244,105 +239,5 @@ elif opcion == "🛠️ Control Mantenimiento":
             30: next((c for c in df.columns if "30" in c and "REALIZADO" in c), None),
             60: next((c for c in df.columns if "60" in c and "REALIZADO" in c), None),
             90: next((c for c in df.columns if "90" in c and "REALIZADO" in c), None),
-            180: next((c for c in df.columns if "180" in c and "REALIZADO" in c), None),
-            360: next((c for c in df.columns if "360" in c and "REALIZADO" in c), None),
-            540: next((c for c in df.columns if "540" in c and "REALIZADO" in c), None),
-        }
-
-        lista_hoy = []
-        lista_semana = []
-        lista_atrasados = []
-        
-        for index, row in df_mant.iterrows():
-            if pd.isnull(row["FECHA_ARRIBO_DT"]): continue
-            fecha_arribo = row["FECHA_ARRIBO_DT"]
-            
-            motivos_hoy = []
-            motivos_semana = []
-            motivos_atrasados = []
-            
-            for intervalo, columna in cols_control.items():
-                if not columna: continue
-                
-                fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
-                estado_celda = str(row[columna]).strip().upper()
-                
-                if estado_celda in ["OK", "N/A", "SI"]: continue
-                
-                if fecha_vencimiento == hoy:
-                    motivos_hoy.append(f"Control {intervalo} días")
-                if inicio_semana <= fecha_vencimiento <= fin_semana:
-                    motivos_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
-                if hoy >= fecha_vencimiento:
-                    motivos_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
-
-            if motivos_hoy:
-                r = row.copy()
-                r["TAREA"] = ", ".join(motivos_hoy)
-                lista_hoy.append(r)
-            if motivos_semana:
-                r = row.copy()
-                r["TAREA"] = ", ".join(motivos_semana)
-                lista_semana.append(r)
-            if motivos_atrasados:
-                r = row.copy()
-                r["TAREA"] = motivos_atrasados[-1]
-                lista_atrasados.append(r)
-
-        c1, c2, c3 = st.columns(3)
-        if c1.button(f"📅 Vence HOY ({len(lista_hoy)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'hoy'
-        if c2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'semana'
-        if c3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True):
-            st.session_state.filtro_mantenimiento = 'todos'
-
-        st.divider()
-
-        df_final = pd.DataFrame()
-        titulo = ""
-        mensaje = ""
-        
-        if st.session_state.filtro_mantenimiento == 'hoy':
-            df_final = pd.DataFrame(lista_hoy)
-            titulo = "🚗 Vehículos que vencen HOY"
-            mensaje = f"Lista para {hoy.strftime('%d/%m/%Y')}."
-        elif st.session_state.filtro_mantenimiento == 'semana':
-            df_final = pd.DataFrame(lista_semana)
-            titulo = "🗓️ Planificación Semanal"
-            mensaje = f"Del {inicio_semana.strftime('%d/%m')} al {fin_semana.strftime('%d/%m')}."
-        else:
-            df_final = pd.DataFrame(lista_atrasados)
-            titulo = "⚠️ Listado de Atrasados / Pendientes"
-            mensaje = "Vehículos que ya cumplieron el plazo y NO tienen 'OK'."
-
-        if not df_final.empty:
-            st.subheader(titulo)
-            st.info(mensaje)
-            cols_base = ["VIN", "MARCA", "MODELO", "FECHA_ARRIBO_DT", "TAREA", "UBICACION"]
-            cols_reales = [c for c in cols_base if c in df_final.columns]
-            st.dataframe(df_final[cols_reales], use_container_width=True, hide_index=True, column_config={"FECHA_ARRIBO_DT": st.column_config.DateColumn("Fecha Arribo", format="DD/MM/YYYY")})
-        else:
-            if st.session_state.filtro_mantenimiento != 'todos': st.success(f"✅ ¡Nada pendiente en: {titulo}!")
-            else: st.success("✅ ¡Felicitaciones! No hay mantenimientos atrasados.")
-
-    else:
-        st.warning("No se encontraron datos de Fecha de Arribo.")
-
-# ==========================================
-# PESTAÑA 4: MAPA DEL SALÓN (NUEVA)
-# ==========================================
-elif opcion == "🗺️ Plano del Salón":
-    st.title("🗺️ Distribución del Salón (Plano)")
-    st.markdown("Vista superior esquemática de las áreas de Peugeot y Citroën.")
+            180: next((c for c in df.
     
-    # Contenedor con estilo para el plano
-    st.markdown('<div class="plano-container">', unsafe_allow_html=True)
-    
-    # Busca el archivo del plano que subiste
-    if os.path.exists("plano_salon.png"):
-        st.image("plano_salon.png", use_container_width=True, caption="Plano General de Distribución - Autociel")
-    else:
-        st.warning("⚠️ No se encuentra el archivo 'plano_salon.png'. Súbelo a GitHub.")
-        
-    st.markdown('</div>', unsafe_allow_html=True)
