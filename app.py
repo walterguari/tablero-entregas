@@ -18,10 +18,10 @@ st.markdown("""
         border: 1px solid #e0e0e0;
     }
     .stMetric {
-        background-color: #fff3e0;
+        background-color: #f0f4c3; /* Color suave para métricas admin */
         padding: 10px;
         border-radius: 5px;
-        border: 1px solid #ffe0b2;
+        border: 1px solid #dce775;
     }
     .plano-img {
         border-radius: 10px;
@@ -42,6 +42,7 @@ def load_data():
         df.columns = df.columns.str.strip().str.upper()
         
         # PROCESAMIENTO FECHAS
+        # 1. ENTREGA
         col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
         if not col_entrega: col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)   
         if col_entrega:
@@ -50,10 +51,21 @@ def load_data():
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
         
+        # 2. ARRIBO
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
+
+        # 3. FACTURACION (Para Doc)
+        col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
+        if col_fact in df.columns:
+            df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
+
+        # 4. DISPONIBILIDAD PAPELES (Para Doc)
+        col_papeles = "FECHA DISPONIBILIDAD PAPELES"
+        if col_papeles in df.columns:
+            df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: df["TELEFONO_CLEAN"] = df[col_tel]
@@ -69,6 +81,8 @@ df = load_data()
 
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
+if 'filtro_estado_admin' not in st.session_state: st.session_state.filtro_estado_admin = None
+if 'filtro_doc_rapido' not in st.session_state: st.session_state.filtro_doc_rapido = None # Nuevo filtro inteligente
 if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agenda = 'mes'
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
@@ -85,7 +99,6 @@ else:
     st.sidebar.warning("Falta logo en GitHub")
 
 st.sidebar.title("Navegación")
-# AQUI AGREGAMOS LA NUEVA PESTAÑA "Estado Documentación"
 opcion = st.sidebar.radio("Ir a:", [
     "📅 Planificación Entregas", 
     "📦 Control de Stock", 
@@ -330,7 +343,7 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos de Fecha de Arribo.")
 
 # ==========================================
-# PESTAÑA 4: ESTADO DOCUMENTACIÓN (NUEVA)
+# PESTAÑA 4: ESTADO DOCUMENTACIÓN
 # ==========================================
 elif opcion == "📄 Estado Documentación":
     st.title("📄 Estado de Documentación")
@@ -338,28 +351,123 @@ elif opcion == "📄 Estado Documentación":
     df_doc = df.copy()
     
     if not df_doc.empty:
-        # Filtros Superiores
+        # Filtros laterales
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
             if marca_filter:
                 df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
 
-        if "ESTADO ADMINISTRATIVO" in df_doc.columns:
-             adm_filter = st.sidebar.multiselect("Estado Administrativo", df_doc["ESTADO ADMINISTRATIVO"].unique())
-             if adm_filter:
-                 df_doc = df_doc[df_doc["ESTADO ADMINISTRATIVO"].isin(adm_filter)]
-
         # Buscador VIN / Cliente
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
-        
         if search:
             mask = df_doc.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
             df_doc = df_doc[mask]
+        
+        st.markdown("---")
+
+        # --- FILTROS RÁPIDOS INTELIGENTES (NUEVO) ---
+        st.subheader("⚡ Acciones Rápidas")
+        
+        # Lógica de conteo para filtros rápidos
+        count_papeles_listos = 0
+        count_pendiente_gestor = 0
+        count_facturado_mes = 0
+        
+        hoy = pd.Timestamp.now()
+        
+        # Pre-cálculos para los contadores
+        if "FECHA_PAPELES_DT" in df_doc.columns:
+            count_papeles_listos = len(df_doc[df_doc["FECHA_PAPELES_DT"].notnull()])
+            
+        if "FECHA_FACTURACION_DT" in df_doc.columns and "FECHA_PAPELES_DT" in df_doc.columns:
+            # Facturado pero SIN papeles
+            count_pendiente_gestor = len(df_doc[
+                (df_doc["FECHA_FACTURACION_DT"].notnull()) & 
+                (df_doc["FECHA_PAPELES_DT"].isnull())
+            ])
+            
+        if "FECHA_FACTURACION_DT" in df_doc.columns:
+            # Facturado en el mes actual
+            count_facturado_mes = len(df_doc[
+                (df_doc["FECHA_FACTURACION_DT"].dt.month == hoy.month) &
+                (df_doc["FECHA_FACTURACION_DT"].dt.year == hoy.year)
+            ])
+
+        # Botones de Filtros Rápidos
+        col_rap1, col_rap2, col_rap3 = st.columns(3)
+        
+        if col_rap1.button(f"🟢 Papeles Listos ({count_papeles_listos})", use_container_width=True):
+            st.session_state.filtro_doc_rapido = 'papeles_listos'
+            st.session_state.filtro_estado_admin = None # Reset otro filtro
+            
+        if col_rap2.button(f"🏃 Pendiente Gestoría ({count_pendiente_gestor})", use_container_width=True):
+            st.session_state.filtro_doc_rapido = 'pendiente_gestor'
+            st.session_state.filtro_estado_admin = None
+            
+        if col_rap3.button(f"📅 Facturado Este Mes ({count_facturado_mes})", use_container_width=True):
+            st.session_state.filtro_doc_rapido = 'facturado_mes'
+            st.session_state.filtro_estado_admin = None
 
         st.divider()
 
-        # Definir Columnas Solicitadas
+        # --- BOTONES DE ESTADO ADMINISTRATIVO ---
+        st.subheader("📂 Filtrar por Estado Administrativo")
+        
+        if "ESTADO ADMINISTRATIVO" in df_doc.columns:
+            conteo_adm = df_doc["ESTADO ADMINISTRATIVO"].value_counts()
+            
+            iconos_adm = {
+                "PENDIENTE": "⏳", "A FACTURAR": "💲", "FACTURADO": "🧾",
+                "PATENTAMIENTO": "📝", "PRENDA": "🔒", "FINALIZADO": "✅",
+                "OK": "✅", "EN TRAMITE": "🏃"
+            }
+
+            cols = st.columns(len(conteo_adm) + 1)
+            
+            with cols[0]:
+                if st.button(f"📋 Todos ({len(df_doc)})", use_container_width=True, key="btn_doc_todos"):
+                    st.session_state.filtro_estado_admin = None
+                    st.session_state.filtro_doc_rapido = None # Reset rápido
+            
+            for i, (estado, cantidad) in enumerate(conteo_adm.items()):
+                icono = iconos_adm.get(str(estado).upper(), "📂")
+                col_destino = cols[i+1] if (i+1) < len(cols) else cols[-1]
+                
+                with col_destino:
+                    if st.button(f"{icono} {estado} ({cantidad})", use_container_width=True, key=f"btn_doc_{i}"):
+                        st.session_state.filtro_estado_admin = estado
+                        st.session_state.filtro_doc_rapido = None # Reset rápido
+
+        # --- APLICACIÓN DE FILTROS ---
+        
+        # 1. Filtro Rápido
+        if st.session_state.filtro_doc_rapido == 'papeles_listos':
+            if "FECHA_PAPELES_DT" in df_doc.columns:
+                df_doc = df_doc[df_doc["FECHA_PAPELES_DT"].notnull()]
+                st.success("Mostrando vehículos con **Papeles Disponibles**.")
+                
+        elif st.session_state.filtro_doc_rapido == 'pendiente_gestor':
+            if "FECHA_FACTURACION_DT" in df_doc.columns and "FECHA_PAPELES_DT" in df_doc.columns:
+                df_doc = df_doc[(df_doc["FECHA_FACTURACION_DT"].notnull()) & (df_doc["FECHA_PAPELES_DT"].isnull())]
+                st.warning("Mostrando vehículos **Facturados pero sin Papeles**.")
+                
+        elif st.session_state.filtro_doc_rapido == 'facturado_mes':
+            if "FECHA_FACTURACION_DT" in df_doc.columns:
+                df_doc = df_doc[
+                    (df_doc["FECHA_FACTURACION_DT"].dt.month == hoy.month) &
+                    (df_doc["FECHA_FACTURACION_DT"].dt.year == hoy.year)
+                ]
+                st.info(f"Mostrando facturación de **{hoy.strftime('%B')}**.")
+
+        # 2. Filtro Estado Administrativo (si no hay filtro rápido activo o se sobreescribió)
+        elif st.session_state.filtro_estado_admin:
+            df_doc = df_doc[df_doc["ESTADO ADMINISTRATIVO"] == st.session_state.filtro_estado_admin]
+            st.info(f"Filtro activo: **{st.session_state.filtro_estado_admin}**")
+
+        st.markdown("<br>", unsafe_allow_html=True) # Espacio
+
+        # 4. Tabla de Resultados
         cols_solicitadas = [
             "FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", 
             "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", 
@@ -368,11 +476,9 @@ elif opcion == "📄 Estado Documentación":
             "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"
         ]
         
-        # Filtramos solo las que existen en el excel
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         
         if not df_doc.empty:
-            st.markdown(f"**Mostrando {len(df_doc)} registros**")
             st.dataframe(
                 df_doc[cols_reales],
                 use_container_width=True,
@@ -385,7 +491,7 @@ elif opcion == "📄 Estado Documentación":
                 }
             )
         else:
-            st.warning("No se encontraron resultados con los filtros aplicados.")
+            st.warning("No se encontraron resultados.")
 
 # ==========================================
 # PESTAÑA 5: PLANO DEL SALÓN (VISTA SUPERIOR)
