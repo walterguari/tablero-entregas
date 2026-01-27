@@ -13,10 +13,10 @@ st.markdown("""
     div.stButton > button {
         width: 100%;
         border-radius: 12px;
-        height: 4em; /* Botones un poco más altos para textos largos */
+        height: 4.5em; /* Altura para textos de dos lineas */
         font-weight: bold;
         border: 1px solid #e0e0e0;
-        white-space: pre-wrap; /* Permite que el texto baje de línea si es largo */
+        white-space: pre-wrap; /* Permite saltos de línea */
     }
     .stMetric {
         background-color: #f0f4c3;
@@ -80,7 +80,7 @@ if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agen
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
-# BARRA LATERAL (LOGO)
+# BARRA LATERAL
 # ==========================================
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
@@ -89,7 +89,7 @@ elif os.path.exists("logo.png"):
 elif os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
 else:
-    st.sidebar.warning("Falta logo en GitHub")
+    st.sidebar.warning("Falta logo")
 
 st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
@@ -311,7 +311,7 @@ elif opcion == "📄 Estado Documentación":
         # --- BOTONES DE ESTADOS SOLICITADOS ---
         st.subheader("📂 Filtrar por Estado")
         
-        # Lista exacta solicitada + Icono visual
+        # Lista exacta solicitada + Icono visual de color
         estados_clave = [
             ("Atopatentado sin cliente asignado", "⚫"),
             ("Autopatentado, se espera la fima p/ F. 08", "⚪"),
