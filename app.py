@@ -85,7 +85,14 @@ else:
     st.sidebar.warning("Falta logo en GitHub")
 
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["📅 Planificación Entregas", "📦 Control de Stock", "🛠️ Control Mantenimiento", "🗺️ Plano del Salón"])
+# AQUI AGREGAMOS LA NUEVA PESTAÑA "Estado Documentación"
+opcion = st.sidebar.radio("Ir a:", [
+    "📅 Planificación Entregas", 
+    "📦 Control de Stock", 
+    "🛠️ Control Mantenimiento", 
+    "📄 Estado Documentación", 
+    "🗺️ Plano del Salón"
+])
 st.sidebar.markdown("---")
 
 # ==========================================
@@ -150,11 +157,8 @@ if opcion == "📅 Planificación Entregas":
 
         if not df_final.empty:
             st.subheader(f"📋 {titulo}")
-            
-            # --- AQUÍ ESTÁ EL VIN AGREGADO ---
             cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE", "MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"]
             cols_reales = [c for c in cols_agenda if c in df_final.columns]
-            
             st.dataframe(
                 df_final[cols_reales].sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]),
                 use_container_width=True, hide_index=True,
@@ -326,7 +330,65 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos de Fecha de Arribo.")
 
 # ==========================================
-# PESTAÑA 4: PLANO DEL SALÓN (VISTA SUPERIOR)
+# PESTAÑA 4: ESTADO DOCUMENTACIÓN (NUEVA)
+# ==========================================
+elif opcion == "📄 Estado Documentación":
+    st.title("📄 Estado de Documentación")
+    
+    df_doc = df.copy()
+    
+    if not df_doc.empty:
+        # Filtros Superiores
+        st.sidebar.header("Filtros Documentación")
+        if "MARCA" in df_doc.columns:
+            marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
+            if marca_filter:
+                df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
+
+        if "ESTADO ADMINISTRATIVO" in df_doc.columns:
+             adm_filter = st.sidebar.multiselect("Estado Administrativo", df_doc["ESTADO ADMINISTRATIVO"].unique())
+             if adm_filter:
+                 df_doc = df_doc[df_doc["ESTADO ADMINISTRATIVO"].isin(adm_filter)]
+
+        # Buscador VIN / Cliente
+        search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
+        
+        if search:
+            mask = df_doc.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
+            df_doc = df_doc[mask]
+
+        st.divider()
+
+        # Definir Columnas Solicitadas
+        cols_solicitadas = [
+            "FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", 
+            "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", 
+            "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", 
+            "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", 
+            "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"
+        ]
+        
+        # Filtramos solo las que existen en el excel
+        cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
+        
+        if not df_doc.empty:
+            st.markdown(f"**Mostrando {len(df_doc)} registros**")
+            st.dataframe(
+                df_doc[cols_reales],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Facturación", format="DD/MM/YYYY"),
+                    "FECHA QUE EL GESTOR RETIRA DOC": st.column_config.DateColumn("F. Retiro Gestor", format="DD/MM/YYYY"),
+                    "FECHA PREVISTA DE ENTREGA": st.column_config.DateColumn("F. Prevista Entrega", format="DD/MM/YYYY"),
+                    "FECHA DISPONIBILIDAD PAPELES": st.column_config.DateColumn("F. Disp. Papeles", format="DD/MM/YYYY"),
+                }
+            )
+        else:
+            st.warning("No se encontraron resultados con los filtros aplicados.")
+
+# ==========================================
+# PESTAÑA 5: PLANO DEL SALÓN (VISTA SUPERIOR)
 # ==========================================
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
