@@ -314,7 +314,7 @@ elif opcion == "📄 Estado Documentación":
             ("Ok documentación, listo para la entrega", "✅"), 
             ("Se entrega al gestor para su Patentamiento", "📂"),
             ("Se entrega al Reventa realizará Patentamiento", "🤝"),
-            ("Se entrega a Salta para ser Patentado", "🚚"),
+            ("Se envía a Salta para ser Patentado", "🚚"),
             ("Se procesa y firma el titular", "📝")
         ]
 
