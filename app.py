@@ -311,7 +311,7 @@ elif opcion == "📄 Estado Documentación":
             ("Autopatentado, se espera la firma p/ F. 08", "✍️"),
             ("En caso legales", "⚖️"),
             ("No retirará la unidad", "🚫"),
-            ("OK documentación, listo para la entrega", "✅"), 
+            ("Ok documentación, listo para la entrega", "✅"), 
             ("Se entrega al gestor para su Patentamiento", "📂"),
             ("Se entrega al Reventa realizará Patentamiento", "🤝"),
             ("Se entrega a Salta para ser Patentado", "🚚"),
