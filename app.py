@@ -24,6 +24,10 @@ st.markdown("""
         border-radius: 5px;
         border: 1px solid #dce775;
     }
+    .plano-img {
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,7 +84,7 @@ if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agen
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
-# BARRA LATERAL
+# BARRA LATERAL (LOGO)
 # ==========================================
 if os.path.exists("logo.png.png"):
     st.sidebar.image("logo.png.png", use_container_width=True)
@@ -89,7 +93,7 @@ elif os.path.exists("logo.png"):
 elif os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
 else:
-    st.sidebar.warning("Falta logo")
+    st.sidebar.warning("Falta logo en GitHub")
 
 st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
@@ -277,7 +281,7 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos.")
 
 # ==========================================
-# 4. ESTADO DOCUMENTACIÓN (BOTONES)
+# 4. ESTADO DOCUMENTACIÓN (BOTONES LISTA EXACTA)
 # ==========================================
 elif opcion == "📄 Estado Documentación":
     st.title("📄 Estado de Documentación")
@@ -285,7 +289,7 @@ elif opcion == "📄 Estado Documentación":
     df_doc = df.copy()
     
     if not df_doc.empty:
-        # 1. Filtro de Marca (Lateral)
+        # 1. Filtro de Marca
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
@@ -300,39 +304,25 @@ elif opcion == "📄 Estado Documentación":
         
         st.markdown("---")
 
-        # --- FILTROS RÁPIDOS (Resumen) ---
-        count_listo_entrega = 0
-        if "FECHA_PAPELES_DT" in df_doc.columns:
-            mask_listo = (df_doc["FECHA_PAPELES_DT"].notnull())
-            if "ESTADO" in df_doc.columns:
-                mask_listo = mask_listo & (df_doc["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO")
-            count_listo_entrega = len(df_doc[mask_listo])
-
-        # --- BOTONES DE ESTADOS SOLICITADOS ---
+        # --- BOTONES DE ESTADOS SOLICITADOS (LISTA EXACTA) ---
         st.subheader("📂 Filtrar por Estado")
         
         # Lista exacta solicitada + Icono visual de color
         estados_clave = [
-            ("Atopatentado sin cliente asignado", "⚫"),
-            ("Autopatentado, se espera la fima p/ F. 08", "⚪"),
-            ("En caso legales", "🔴"),
+            ("Autopatentado sin cliente asignado", "⚫"),
+            ("Autopatentado, se espera la firma p/ F. 08", "✍️"),
+            ("En caso legales", "⚖️"),
             ("No retirará la unidad", "🚫"),
-            ("Ok documención, listo para la entrega", "🟢"), 
-            ("Se entrega al gestor para su Patentamiento.", "🔵"),
-            ("Se entrega al Reventa realizará Patentamiento", "🚙"),
-            ("Se envia a Salta para ser Patentado", "🚚"),
+            ("OK documentación, listo para la entrega", "✅"), 
+            ("Se entrega al gestor para su Patentamiento", "📂"),
+            ("Se entrega al Reventa realizará Patentamiento", "🤝"),
+            ("Se entrega a Salta para ser Patentado", "🚚"),
             ("Se procesa y firma el titular", "📝")
         ]
 
         if "ESTADO ADMINISTRATIVO" in df_doc.columns:
-            # Fila Superior: Ver Todos + Filtro Rápido de Entrega
-            c1, c2 = st.columns(2)
-            if c1.button(f"📋 Ver Todos ({len(df_doc)})", use_container_width=True, key="btn_doc_todos"):
-                st.session_state.filtro_estado_admin = None
-                st.session_state.filtro_doc_rapido = None
-            
-            if c2.button(f"🏁 Listo para Entregar ({count_listo_entrega})", use_container_width=True, key="btn_listo"):
-                st.session_state.filtro_doc_rapido = 'listo'
+            # Botón "Ver Todos"
+            if st.button(f"📋 Ver Todos ({len(df_doc)})", use_container_width=True, key="btn_doc_todos"):
                 st.session_state.filtro_estado_admin = None
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -352,16 +342,9 @@ elif opcion == "📄 Estado Documentación":
                     label = f"{icono} {estado_texto} ({cantidad})"
                     if st.button(label, use_container_width=True, key=f"btn_est_{index}"):
                         st.session_state.filtro_estado_admin = estado_texto
-                        st.session_state.filtro_doc_rapido = None
 
         # --- APLICAR FILTRO ---
-        if st.session_state.filtro_doc_rapido == 'listo':
-             mask = (df_doc["FECHA_PAPELES_DT"].notnull())
-             if "ESTADO" in df_doc.columns: mask = mask & (df_doc["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO")
-             df_doc = df_doc[mask]
-             st.success("✅ Vehículos con papeles listos y pendientes de entrega física.")
-
-        elif st.session_state.filtro_estado_admin:
+        if st.session_state.filtro_estado_admin:
             # Filtramos usando contains para asegurar match con el texto del botón
             df_doc = df_doc[df_doc["ESTADO ADMINISTRATIVO"].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, regex=False)]
             st.info(f"Filtro activo: **{st.session_state.filtro_estado_admin}**")
