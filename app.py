@@ -13,20 +13,19 @@ st.markdown("""
     div.stButton > button {
         width: 100%;
         border-radius: 12px;
-        height: 4.5em; /* Altura para textos de dos lineas */
+        height: auto;
+        min-height: 4.5em;
         font-weight: bold;
         border: 1px solid #e0e0e0;
-        white-space: pre-wrap; /* Permite saltos de línea */
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        padding: 10px;
     }
     .stMetric {
         background-color: #f0f4c3;
         padding: 10px;
         border-radius: 5px;
         border: 1px solid #dce775;
-    }
-    .plano-img {
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -40,6 +39,7 @@ URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=
 def load_data():
     try:
         df = pd.read_csv(URL)
+        # Convertimos columnas a mayúsculas y quitamos espacios extra para estandarizar
         df.columns = df.columns.str.strip().str.upper()
         
         # PROCESAMIENTO FECHAS
@@ -281,7 +281,7 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos.")
 
 # ==========================================
-# 4. ESTADO DOCUMENTACIÓN (BOTONES LISTA EXACTA)
+# 4. ESTADO DOCUMENTACIÓN (BOTONES CORREGIDOS)
 # ==========================================
 elif opcion == "📄 Estado Documentación":
     st.title("📄 Estado de Documentación")
@@ -289,14 +289,12 @@ elif opcion == "📄 Estado Documentación":
     df_doc = df.copy()
     
     if not df_doc.empty:
-        # 1. Filtro de Marca
+        # Filtros laterales
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
-            if marca_filter:
-                df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
+            if marca_filter: df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
 
-        # 2. Buscador VIN / Cliente
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
         if search:
             mask = df_doc.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
@@ -304,10 +302,10 @@ elif opcion == "📄 Estado Documentación":
         
         st.markdown("---")
 
-        # --- BOTONES DE ESTADOS SOLICITADOS (LISTA EXACTA) ---
+        # --- BOTONES DE ESTADOS SOLICITADOS ---
         st.subheader("📂 Filtrar por Estado")
         
-        # Lista exacta solicitada + Icono visual de color
+        # Lista exacta solicitada
         estados_clave = [
             ("Autopatentado sin cliente asignado", "⚫"),
             ("Autopatentado, se espera la firma p/ F. 08", "✍️"),
@@ -320,44 +318,54 @@ elif opcion == "📄 Estado Documentación":
             ("Se procesa y firma el titular", "📝")
         ]
 
-        if "ESTADO ADMINISTRATIVO" in df_doc.columns:
-            # Botón "Ver Todos"
+        # LÓGICA DE DETECCIÓN DE COLUMNA CORRECTA (CORRECCIÓN CLAVE)
+        col_target = None
+        
+        # 1. Buscamos la columna exacta que me dijiste: "ESTADO DE ADMINISTRATIVO"
+        if "ESTADO DE ADMINISTRATIVO" in df_doc.columns:
+            col_target = "ESTADO DE ADMINISTRATIVO"
+        # 2. Si no está, probamos "ESTADO ADMINISTRATIVO"
+        elif "ESTADO ADMINISTRATIVO" in df_doc.columns:
+            col_target = "ESTADO ADMINISTRATIVO"
+        # 3. Si no, usamos la de Detalles como último recurso
+        elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns:
+            col_target = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
+
+        # --- BOTONES ---
+        if col_target:
             if st.button(f"📋 Ver Todos ({len(df_doc)})", use_container_width=True, key="btn_doc_todos"):
                 st.session_state.filtro_estado_admin = None
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Generar Grid de Botones
-            cols = st.columns(3) # 3 columnas para que se vea ordenado
+            cols = st.columns(3) 
             
             for index, (estado_texto, icono) in enumerate(estados_clave):
-                # Calcular cantidad real en el excel
-                # Usamos str.contains para ser flexibles con espacios o mayusculas
-                cantidad = len(df_doc[df_doc["ESTADO ADMINISTRATIVO"].astype(str).str.contains(estado_texto, case=False, regex=False)])
+                # Contar cuántos hay
+                cantidad = len(df_doc[df_doc[col_target].astype(str).str.contains(estado_texto, case=False, regex=False, na=False)])
                 
-                # Asignar a columna (0, 1 o 2)
                 col_destino = cols[index % 3]
-                
                 with col_destino:
                     label = f"{icono} {estado_texto} ({cantidad})"
                     if st.button(label, use_container_width=True, key=f"btn_est_{index}"):
                         st.session_state.filtro_estado_admin = estado_texto
 
-        # --- APLICAR FILTRO ---
-        if st.session_state.filtro_estado_admin:
-            # Filtramos usando contains para asegurar match con el texto del botón
-            df_doc = df_doc[df_doc["ESTADO ADMINISTRATIVO"].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, regex=False)]
-            st.info(f"Filtro activo: **{st.session_state.filtro_estado_admin}**")
+            # --- APLICAR FILTRO ---
+            if st.session_state.filtro_estado_admin:
+                df_doc = df_doc[df_doc[col_target].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, regex=False, na=False)]
+                st.info(f"Filtro activo: **{st.session_state.filtro_estado_admin}**")
+        else:
+            st.error("⚠️ No se encuentra la columna 'Estado de ADMINISTRATIVO' en el Excel.")
 
         st.divider()
 
-        # TABLA
-        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
+        # TABLA FINAL
+        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         if not df_doc.empty:
             st.dataframe(df_doc[cols_reales], use_container_width=True, hide_index=True, column_config={"FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Factura", format="DD/MM/YYYY")})
         else:
-            st.warning("No hay resultados para este estado.")
+            st.warning("No hay resultados.")
 
 # ==========================================
 # 5. PLANO SALÓN
