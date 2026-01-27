@@ -119,11 +119,16 @@ if opcion == "📅 Planificación Entregas":
         programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
         
         c1, c2, c3 = st.columns(3)
-        if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True):
+        # Lógica de color (primary si está activo)
+        type_ent = "primary" if st.session_state.modo_vista_agenda == 'entregados' else "secondary"
+        type_prog = "primary" if st.session_state.modo_vista_agenda == 'programados' else "secondary"
+        type_mes = "primary" if st.session_state.modo_vista_agenda == 'mes' else "secondary"
+
+        if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent):
             st.session_state.modo_vista_agenda = 'entregados'
-        if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True):
+        if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog):
             st.session_state.modo_vista_agenda = 'programados'
-        if c3.button("📅 Filtrar por Mes / Día", use_container_width=True):
+        if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes):
             st.session_state.modo_vista_agenda = 'mes'
         st.divider()
 
@@ -190,13 +195,15 @@ elif opcion == "📦 Control de Stock":
             iconos = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", "RESERVADO": "🔖"}
             cols = st.columns(len(conteo) + 1)
             with cols[0]:
-                if st.button(f"📋 Todos ({len(df_stock)})", use_container_width=True, key="btn_stock_todos"):
+                type_todos = "primary" if st.session_state.filtro_estado_stock is None else "secondary"
+                if st.button(f"📋 Todos ({len(df_stock)})", use_container_width=True, key="btn_stock_todos", type=type_todos):
                     st.session_state.filtro_estado_stock = None
             for i, (estado, cantidad) in enumerate(conteo.items()):
                 icono = iconos.get(str(estado).upper(), "🚗")
                 col_destino = cols[i+1] if (i+1) < len(cols) else cols[-1]
                 with col_destino:
-                    if st.button(f"{icono} {estado} ({cantidad})", use_container_width=True, key=f"btn_stock_{i}"):
+                    type_btn = "primary" if st.session_state.filtro_estado_stock == estado else "secondary"
+                    if st.button(f"{icono} {estado} ({cantidad})", use_container_width=True, key=f"btn_stock_{i}", type=type_btn):
                         st.session_state.filtro_estado_stock = estado
             if st.session_state.filtro_estado_stock:
                 df_mostrar = df_stock[df_stock["ESTADO"] == st.session_state.filtro_estado_stock]
@@ -255,9 +262,13 @@ elif opcion == "🛠️ Control Mantenimiento":
                 r = row.copy(); r["TAREA"] = motivos_atrasados[-1]; lista_atrasados.append(r)
         
         c1, c2, c3 = st.columns(3)
-        if c1.button(f"📅 Vence HOY ({len(lista_hoy)})", use_container_width=True): st.session_state.filtro_mantenimiento = 'hoy'
-        if c2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True): st.session_state.filtro_mantenimiento = 'semana'
-        if c3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True): st.session_state.filtro_mantenimiento = 'todos'
+        t_hoy = "primary" if st.session_state.filtro_mantenimiento == 'hoy' else "secondary"
+        t_sem = "primary" if st.session_state.filtro_mantenimiento == 'semana' else "secondary"
+        t_tod = "primary" if st.session_state.filtro_mantenimiento == 'todos' else "secondary"
+
+        if c1.button(f"📅 Vence HOY ({len(lista_hoy)})", use_container_width=True, type=t_hoy): st.session_state.filtro_mantenimiento = 'hoy'
+        if c2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True, type=t_sem): st.session_state.filtro_mantenimiento = 'semana'
+        if c3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True, type=t_tod): st.session_state.filtro_mantenimiento = 'todos'
         st.divider()
         
         df_final = pd.DataFrame()
@@ -280,7 +291,7 @@ elif opcion == "🛠️ Control Mantenimiento":
         st.warning("No se encontraron datos.")
 
 # ==========================================
-# 4. ESTADO DOCUMENTACIÓN (ORDEN INVERTIDO + CONTADORES EN STOCK)
+# 4. ESTADO DOCUMENTACIÓN (CONTEO DINÁMICO + OCULTAR CEROS + COLOR)
 # ==========================================
 elif opcion == "📄 Estado Documentación":
     st.title("📄 Estado de Documentación")
@@ -288,7 +299,7 @@ elif opcion == "📄 Estado Documentación":
     df_doc = df.copy()
     
     if not df_doc.empty:
-        # Filtros laterales
+        # Filtros laterales (Base)
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
@@ -301,42 +312,94 @@ elif opcion == "📄 Estado Documentación":
         
         st.markdown("---")
 
-        # --- SECCIÓN 1: FILTRO POR ESTADO FÍSICO (STOCK) (CON CANTIDADES) ---
+        # ----------------------------------------------------
+        # NIVEL 1: ESTADO FÍSICO (STOCK)
+        # ----------------------------------------------------
         st.subheader("📦 1. Estado Físico (Stock)")
         
-        if "ESTADO" in df_doc.columns:
-            conteo_stock = df_doc["ESTADO"].value_counts()
-            iconos_stock = {
-                "EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", 
-                "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", 
-                "RESERVADO": "🔖", "DISPONIBLE": "🟢"
-            }
-            
-            # Botones de Stock
-            cols_s = st.columns(len(conteo_stock) + 1)
-            with cols_s[0]:
-                # Botón Cualquiera con el total del dataframe actual
-                if st.button(f"♾️ Cualquiera ({len(df_doc)})", use_container_width=True, key="btn_stock_reset_doc"):
-                    st.session_state.filtro_doc_stock = None
-            
-            for i, (estado, cantidad) in enumerate(conteo_stock.items()):
-                # Distribuir en columnas
-                col_idx = (i + 1) % len(cols_s)
-                with cols_s[i+1]:
-                     icon = iconos_stock.get(str(estado).upper(), "🚗")
-                     # AQUÍ ESTÁ EL CAMBIO: Agregamos ({cantidad}) al label
-                     if st.button(f"{icon} {estado} ({cantidad})", use_container_width=True, key=f"btn_st_doc_{i}"):
-                         st.session_state.filtro_doc_stock = estado
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- SECCIÓN 2: FILTRO POR ESTADO ADMINISTRATIVO ---
-        st.subheader("📂 2. Estado Administrativo")
+        # 1. Definir Dataframe para calcular los conteos de ESTE nivel (Stock)
+        #    Para que sea interactivo, debe respetar el filtro del OTRO nivel (Admin) si está activo.
+        df_for_stock_counts = df_doc.copy()
         
         col_target_admin = None
         if "ESTADO DE ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
         elif "ESTADO ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
+
+        if st.session_state.filtro_estado_admin and col_target_admin:
+             df_for_stock_counts = df_for_stock_counts[df_for_stock_counts[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, regex=False, na=False)]
+
+        # 2. Generar lista de botones válidos (Cantidad > 0)
+        stock_buttons = []
+        
+        # Botón "Cualquiera" siempre visible, muestra el total de la selección actual del nivel opuesto
+        stock_buttons.append({
+            "label": f"♾️ Cualquiera ({len(df_for_stock_counts)})",
+            "key": "btn_stock_reset_doc",
+            "filter_val": None,
+            "count": len(df_for_stock_counts)
+        })
+
+        if "ESTADO" in df_doc.columns:
+            # Orden de preferencia o todos los unicos
+            all_stock_states = ["EN EXHIBICIÓN", "SIN PRE ENTREGA", "CON PRE ENTREGA", "BLOQUEADO", "ENTREGADO", "RESERVADO", "DISPONIBLE"]
+            # Aseguramos que existan en el df original para no buscar fantasmas, pero agregamos otros que aparezcan
+            unique_in_db = df_doc["ESTADO"].dropna().str.upper().unique().tolist()
+            for u in unique_in_db:
+                if u not in all_stock_states: all_stock_states.append(u)
+
+            iconos_stock = {
+                "EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", 
+                "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", 
+                "RESERVADO": "🔖", "DISPONIBLE": "🟢"
+            }
+
+            for estado in all_stock_states:
+                # Contamos en el DF filtrado por admin
+                cant = len(df_for_stock_counts[df_for_stock_counts["ESTADO"].astype(str).str.upper() == estado])
+                if cant > 0: # REGLA 3: Solo mostrar si > 0
+                    icon = iconos_stock.get(estado, "🚗")
+                    stock_buttons.append({
+                        "label": f"{icon} {estado.title()} ({cant})",
+                        "key": f"btn_st_doc_{estado}",
+                        "filter_val": estado, # Usamos el valor real del DB si es posible, o normalizamos
+                        "count": cant
+                    })
+
+        # 3. Renderizar Botones Stock en Grid
+        if stock_buttons:
+            # Usamos 4 columnas como base
+            cols_s = st.columns(4)
+            for idx, btn_data in enumerate(stock_buttons):
+                col_to_use = cols_s[idx % 4]
+                with col_to_use:
+                    # REGLA 1: Color Primary si está activo
+                    # Normalizamos para comparar (en caso de mayusculas/minusculas)
+                    is_active = False
+                    if st.session_state.filtro_doc_stock is None and btn_data["filter_val"] is None:
+                        is_active = True
+                    elif st.session_state.filtro_doc_stock and btn_data["filter_val"]:
+                        if str(st.session_state.filtro_doc_stock).upper() == str(btn_data["filter_val"]).upper():
+                            is_active = True
+                    
+                    btn_type = "primary" if is_active else "secondary"
+                    
+                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
+                        st.session_state.filtro_doc_stock = btn_data["filter_val"]
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ----------------------------------------------------
+        # NIVEL 2: ESTADO ADMINISTRATIVO
+        # ----------------------------------------------------
+        st.subheader("📂 2. Estado Administrativo")
+        
+        # 1. Definir Dataframe para calcular conteos de ESTE nivel (Admin)
+        #    Debe respetar el filtro del nivel anterior (Stock) si está activo.
+        df_for_admin_counts = df_doc.copy()
+        if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
+             # Normalizamos comparación de stock
+             df_for_admin_counts = df_for_admin_counts[df_for_admin_counts["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
 
         estados_clave = [
             ("Atopatentado sin cliente", "⚫", "Atopatentado sin"),
@@ -350,40 +413,52 @@ elif opcion == "📄 Estado Documentación":
             ("Firma titular", "📝", "titular")
         ]
 
-        # Botón "Reset Admin"
-        if st.button(f"📋 Ver Todos los Trámites", use_container_width=True, key="btn_doc_reset_admin"):
-            st.session_state.filtro_estado_admin = None
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        cols = st.columns(3) 
+        admin_buttons = []
         
+        # Botón Reset
+        admin_buttons.append({
+            "label": f"📋 Ver Todos los Trámites ({len(df_for_admin_counts)})",
+            "key": "btn_doc_reset_admin",
+            "filter_val": None,
+            "count": len(df_for_admin_counts)
+        })
+
         if col_target_admin:
-            for index, (label_btn, icono, keyword) in enumerate(estados_clave):
-                # Calcular cantidad, considerando el filtro de Stock si está activo
-                df_temp_count = df_doc.copy()
-                if st.session_state.filtro_doc_stock and "ESTADO" in df_temp_count.columns:
-                    df_temp_count = df_temp_count[df_temp_count["ESTADO"] == st.session_state.filtro_doc_stock]
+            for label_btn, icono, keyword in estados_clave:
+                # Contar usando contains en el DF filtrado por stock
+                cant = len(df_for_admin_counts[df_for_admin_counts[col_target_admin].astype(str).str.contains(keyword, case=False, regex=False, na=False)])
                 
-                cantidad = len(df_temp_count[df_temp_count[col_target_admin].astype(str).str.contains(keyword, case=False, regex=False, na=False)])
-                
-                col_destino = cols[index % 3]
-                with col_destino:
-                    label = f"{icono} {label_btn} ({cantidad})"
-                    if st.button(label, use_container_width=True, key=f"btn_est_{index}"):
-                        st.session_state.filtro_estado_admin = keyword
+                if cant > 0: # REGLA 3: Solo mostrar si > 0
+                    admin_buttons.append({
+                        "label": f"{icono} {label_btn} ({cant})",
+                        "key": f"btn_est_{keyword}",
+                        "filter_val": keyword,
+                        "count": cant
+                    })
+
+        # Renderizar Botones Admin
+        if admin_buttons:
+            cols_a = st.columns(3) # 3 columnas para admin
+            for idx, btn_data in enumerate(admin_buttons):
+                col_to_use = cols_a[idx % 3]
+                with col_to_use:
+                    is_active = (st.session_state.filtro_estado_admin == btn_data["filter_val"])
+                    btn_type = "primary" if is_active else "secondary"
+                    
+                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
+                        st.session_state.filtro_estado_admin = btn_data["filter_val"]
 
         # --- APLICACIÓN DE FILTROS ---
         st.divider()
         
         # 1. Aplicar Filtro Stock
         if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
-            df_doc = df_doc[df_doc["ESTADO"] == st.session_state.filtro_doc_stock]
-            st.info(f"📦 Filtro Stock: **{st.session_state.filtro_doc_stock}**")
+            df_doc = df_doc[df_doc["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
+            # No mostramos mensaje aqui para no saturar, el botón primary ya indica el filtro
 
         # 2. Aplicar Filtro Administrativo
         if st.session_state.filtro_estado_admin and col_target_admin:
             df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, regex=False, na=False)]
-            st.info(f"📂 Filtro Admin: Contiene **'{st.session_state.filtro_estado_admin}'**")
 
         # TABLA RESULTANTE
         st.markdown(f"### 🔍 Resultados: {len(df_doc)} vehículos")
