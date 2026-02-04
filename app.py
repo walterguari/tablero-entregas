@@ -548,5 +548,3 @@ elif opcion == "🗺️ Plano del Salón":
         if os.path.exists("mapa_citroen.jpg"): st.image("mapa_citroen.jpg", use_container_width=True)
         elif os.path.exists("Citroen.jpeg"): st.image("Citroen.jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_citroen.jpg'")
-
-```
