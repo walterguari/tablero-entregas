@@ -92,7 +92,6 @@ elif os.path.exists("logo.png"):
 elif os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
 else:
-    # st.sidebar.warning("Falta logo en GitHub") 
     pass 
 
 st.sidebar.title("Navegación")
@@ -167,7 +166,7 @@ if opcion == "📅 Planificación Entregas":
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                # --- LÓGICA AGREGADA: DETECTAR Y MOSTRAR COLUMNA ADMIN ---
+                # --- DETECCIÓN Y VISUALIZACIÓN DE COLUMNA ADMIN ---
                 col_admin = next((c for c in df.columns if "ESTADO" in c and "ADMIN" in c), None)
                 
                 cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
@@ -497,5 +496,3 @@ elif opcion == "🗺️ Plano del Salón":
         if os.path.exists("mapa_citroen.jpg"): st.image("mapa_citroen.jpg", use_container_width=True)
         elif os.path.exists("Citroen.jpeg"): st.image("Citroen.jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_citroen.jpg'")
-
-```
