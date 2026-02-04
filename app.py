@@ -1,20 +1,3 @@
-¡No te preocupes! Ese error asusta pero es muy fácil de arreglar.
-
-**¿Qué significa `U+00A0`?**
-Significa que al copiar y pegar el código, algunos espacios en blanco se copiaron como "espacios especiales" (llamados *espacios de no separación*) que los navegadores web usan a veces. Python es muy estricto y no entiende esos espacios como indentación, por eso te da error de sintaxis ("SyntaxError").
-
-**La Solución:**
-Para que no tengas que buscar esos espacios invisibles uno por uno, aquí te dejo el código **COMPLETO** de todo el archivo `app.py`.
-
-He hecho tres cosas en esta versión:
-
-1. **Limpieza:** Eliminé todos los caracteres extraños.
-2. **Orden:** Puse la definición del menú (`opcion = ...`) en el lugar correcto para evitar el error anterior.
-3. **Mejora:** Incluí la columna de "Estado Admin" que pediste en la sección de Planificación.
-
-**Copia todo esto y reemplaza el contenido completo de tu archivo `app.py`:**
-
-```python
 import streamlit as st
 import pandas as pd
 import datetime
