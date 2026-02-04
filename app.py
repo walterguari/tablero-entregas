@@ -1,14 +1,3 @@
-Aquí tienes el código **COMPLETO** y listo para usar.
-
-Incluye:
-
-1. **Correcciones generales** (sin errores de sintaxis).
-2. **Pestaña 1 (Planificación):** Con la columna "Estado Admin" agregada automáticamente.
-3. **Pestaña 4 (Documentación):** Con el orden invertido (Admin arriba, Físico abajo) y los botones de "Ok Documentación" separados entre "En Stock" y "Entregados".
-
-Copia y pega todo esto en tu `app.py`:
-
-```python
 import streamlit as st
 import pandas as pd
 import datetime
