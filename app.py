@@ -148,8 +148,9 @@ with tab1:
     if not df_main.empty:
         st.write("### ⚖️ Nivel de Formación")
         niveles = ["Ambos", "NIVEL 1", "NIVEL 2"]
-        sel_nivel = st.segmented_control("Ver indicadores de:", niveles, default=st.session_state.nivel_seleccionado)
-        if sel_nivel and sel_nivel != st.session_state.nivel_seleccionado:
+        # Usando selectbox estándar para evitar problemas con componentes experimentales
+        sel_nivel = st.selectbox("Ver indicadores de:", niveles, index=niveles.index(st.session_state.nivel_seleccionado))
+        if sel_nivel != st.session_state.nivel_seleccionado:
             st.session_state.nivel_seleccionado = sel_nivel
             st.rerun()
 
@@ -253,7 +254,7 @@ with tab3:
                 }
             })
 
-        state = calendar(events=calendar_events, options={"locale": "es", "height": 600}, key="calendar_final")
+        state = calendar(events=calendar_events, options={"locale": "es", "height": 600}, key="calendar_v3")
         
         if state.get("eventClick"):
             ev = state["eventClick"]["event"]
