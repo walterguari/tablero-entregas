@@ -251,28 +251,29 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
             
-            # --- NUEVO GRÁFICO DE BARRAS VERTICALES ABAJO (EXCLUSIVO PARA USADOS) ---
-            if es_usado and not df_año.empty:
+            # --- GRÁFICO DE BARRAS VERTICALES ABAJO (PARA AMBOS CASOS) ---
+            if not df_año.empty:
                 st.markdown("---")
-                st.subheader(f"📊 Volumen de Entregas por Mes ({año_sel})")
+                tipo_unidades = "0KM" if not es_usado else "Usados"
+                st.subheader(f"📊 Volumen de Entregas por Mes {tipo_unidades} ({año_sel})")
                 
-                # Diccionario para traducir los nombres de los meses a español
+                # Traducir los nombres de los meses a español
                 meses_es = {
                     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
                     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
                 }
                 
-                # Agrupamos por el número de mes para garantizar el orden cronológico estricto
+                # Agrupamos por el número de mes para garantizar el orden cronológico
                 df_grafico = df_año.dropna(subset=["N_MES_ENTREGA"]).copy()
                 df_grouped = df_grafico.groupby("N_MES_ENTREGA").size().reset_index(name="Cantidad de Entregas")
                 
                 # Mapeamos los números a nombres legibles en español
                 df_grouped["Mes"] = df_grouped["N_MES_ENTREGA"].map(meses_es)
                 
-                # Configuramos los índices para que Streamlit los interprete como el eje X correcto
+                # Configuramos el índice para que sea la etiqueta del eje X
                 df_grouped = df_grouped.set_index("Mes")
                 
-                # Renderizado del gráfico de barras vertical básico de Streamlit
+                # Renderizado del gráfico de barras
                 st.bar_chart(df_grouped["Cantidad de Entregas"], use_container_width=True)
 
         else:
