@@ -57,7 +57,7 @@ def load_data(url):
             lambda c: "CONFIRMACI" in c and "ENTREGA" in c,
             lambda c: "FECHA" in c and "ENTREGA" in c,
             lambda c: "FECHA" in c and "TURNO" in c,
-            lambda c: "FECHA" in c and "FACT" not not c and "ARRIBO" not in c and "PAPELES" not in c
+            lambda c: "FECHA" in c and "FACT" not in c and "ARRIBO" not in c and "PAPELES" not in c
         ]
         
         for criterio in posibles_columnas_entrega:
@@ -193,7 +193,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, solo_columnas_ba
                 st.subheader(f"📋 {titulo}")
                 
                 if solo_columnas_basicas:
-                    # Buscamos la columna original en el Excel que contenga la confirmación
                     col_fecha_origen = next((c for c in df_target.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
                     if not col_fecha_origen:
                         col_fecha_origen = "FECHA_ENTREGA_DT"
