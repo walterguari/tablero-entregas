@@ -40,51 +40,52 @@ GID_USADOS = "183300599"
 URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?format=csv&gid={GID_USADOS}"
 
 @st.cache_data(ttl=60)
-def load_data(url):
+def load_data(url, es_usados=False):
     try:
         df = pd.read_csv(url)
-        df.columns = df.columns.str.strip().str.upper()
+        
+        # Limpieza rigurosa de encabezados eliminando saltos de línea y espacios múltiples
+        nuevos_nombres = []
+        for col in df.columns:
+            if pd.isna(col) or str(col).strip() == "" or "Unnamed:" in str(col):
+                nuevos_nombres.append(f"COL_VACIA_{len(nuevos_nombres)}")
+            else:
+                nuevos_nombres.append(" ".join(str(col).strip().upper().split()))
+        df.columns = nuevos_nombres
         
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
         df = df.loc[:, ~df.columns.duplicated()]
         
-        # PROCESAMIENTO FECHAS
-        col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
-        if not col_entrega: 
-            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
-        if col_entrega:
+        # PROCESAMIENTO CLAVE DE FECHAS SEGÚN ORIGEN
+        if es_usados:
+            col_entrega = "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)"
+        else:
+            col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
+            if not col_entrega: 
+                col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
+        
+        if col_entrega in df.columns:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
+            df["COL_ORIGINAL_FECHA_USADOS"] = col_entrega
+        else:
+            df["FECHA_ENTREGA_DT"] = pd.to_datetime([])
         
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
 
-        col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
-        if col_fact in df.columns:
-            df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
-
-        col_papeles = "FECHA DISPONIBILIDAD PAPELES"
-        if col_papeles in df.columns:
-            df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
-
-        col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
-        if col_tel: 
-            df["TELEFONO_CLEAN"] = df[col_tel]
-        col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
-        if col_mail: 
-            df["CORREO_CLEAN"] = df[col_mail]
-
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-df_0km = load_data(URL_0KM)
-df_usados = load_data(URL_USADOS)
+# Cargas independientes parametrizadas
+df_0km = load_data(URL_0KM, es_usados=False)
+df_usados = load_data(URL_USADOS, es_usados=True)
 
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
@@ -97,7 +98,6 @@ if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mante
 # ==========================================
 # BARRA LATERAL (LOGO Y NAVEGACIÓN)
 # ==========================================
-# Saneamiento de carga del logo
 logo_paths = ["logo.png", "logo.png.png", "logo.jpg"]
 for path in logo_paths:
     if os.path.exists(path):
@@ -116,13 +116,14 @@ opcion = st.sidebar.radio("Ir a:", [
 st.sidebar.markdown("---")
 
 # FUNCIÓN DE AGENDA OPTIMIZADA
-def render_agenda(df_target, session_key_vista, titulo_seccion):
+def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
-        años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
+        df_valid = df_target.dropna(subset=["FECHA_ENTREGA_DT"])
+        años = sorted(df_valid["AÑO_ENTREGA"].dropna().unique().astype(int))
         if años:
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
-            df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
+            df_año = df_valid[df_valid["AÑO_ENTREGA"] == año_sel]
             
             hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
@@ -175,26 +176,48 @@ def render_agenda(df_target, session_key_vista, titulo_seccion):
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                col_config_table = {}
                 
-                cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
-                if col_admin: 
-                    cols_agenda.append(col_admin)
+                # --- ORDEN Y COLUMNAS ESPECÍFICAS SEGÚN PESTAÑA ---
+                if es_usados:
+                    col_fecha_original = df_final["COL_ORIGINAL_FECHA_USADOS"].iloc[0]
+                    cols_agenda = [
+                        col_fecha_original,
+                        "HORA",
+                        "CLIENTE",
+                        "ESTADO DEL TRAMITE",
+                        "TIPO DE UNIDAD",
+                        "ESTADO DE UNIDAD",
+                        "MARCA",
+                        "MODELO",
+                        "DOMINIO",
+                        "TELEFONO",
+                        "CORREO ELECTRONICO",
+                        "VENDEDOR (BOLETO)"
+                    ]
+                    col_sort_hora = "HORA"
+                    col_config_table[col_fecha_original] = st.column_config.TextColumn("Fecha Confirmada")
+                else:
+                    col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                    cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
+                    if col_admin: 
+                        cols_agenda.append(col_admin)
+                    cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                    col_sort_hora = "HS DE ENTREGA AL CLIENTE"
+                    col_config_table["FECHA_ENTREGA_DT"] = st.column_config.DateColumn("Fecha", format="DD/MM/YYYY")
                 
-                cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
-                
-                # Garantizar que las columnas duplicadas remanentes en el subset no rompan st.dataframe
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                 
+                sort_cols = ["FECHA_ENTREGA_DT"]
+                if col_sort_hora in df_render.columns:
+                    sort_cols.append(col_sort_hora)
+                
                 st.dataframe(
-                    df_render.sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]), 
+                    df_render.sort_values(sort_cols), 
                     use_container_width=True, 
-                    hide_index=True, 
-                    column_config={
-                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                        col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
-                    }
+                    hide_index=True,
+                    column_config=col_config_table
                 )
             else:
                 if st.session_state[session_key_vista] != 'mes': 
@@ -208,10 +231,10 @@ def render_agenda(df_target, session_key_vista, titulo_seccion):
 # RENDERIZADO DE LAS PESTAÑAS
 # ==========================================
 if opcion == "📅 Planificación Entregas 0KM":
-    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM")
+    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usados=False)
 
 elif opcion == "🚗 Agenda de Usados":
-    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados")
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", es_usados=True)
 
 elif opcion == "📦 Control de Stock 0KM":
     st.title("📦 Tablero de Stock 0KM")
@@ -329,170 +352,28 @@ elif opcion == "🛠️ Control Mantenimiento":
 elif opcion == "📄 Estado Documentación 0KM":
     st.title("📄 Estado de Documentación 0KM")
     df_doc = df_0km.copy()
-    
     if not df_doc.empty:
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
             if marca_filter: df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
-
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
         if search:
             mask = df_doc.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
             df_doc = df_doc[mask]
-        
         st.markdown("---")
-
-        col_target_admin = None
-        if "ESTADO DE ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
-        elif "ESTADO ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
-        elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
-
-        st.subheader("📂 1. Estado Administrativo")
-        df_base_botones = df_doc.copy()
-
-        estados_clave = [
-            ("Atopatentado sin cliente", "⚫", "Atopatentado sin"),
-            ("Autopatentado firma 08", "✍️", "firma"),
-            ("En caso legales", "⚖️", "legales"),
-            ("No retirará la unidad", "🚫", "retirará"),
-            ("Entrega al gestor", "📂", "gestor"),
-            ("Entrega al Reventa", "🤝", "Reventa"),
-            ("Se envía a Salta", "🚚", "Salta"),
-            ("Firma titular", "📝", "titular")
-        ]
-
-        admin_buttons = []
-        admin_buttons.append({
-            "label": f"📋 Ver Todos ({len(df_base_botones)})",
-            "key": "btn_doc_reset_admin",
-            "filter_val": None,
-            "count": len(df_base_botones)
-        })
-
-        if col_target_admin:
-            mask_ok = df_base_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-            if "ESTADO" in df_base_botones.columns:
-                mask_no_entregado = df_base_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO"
-                mask_entregado = df_base_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO"
-                
-                cant_ok_stock = len(df_base_botones[mask_ok & mask_no_entregado])
-                cant_ok_entregados = len(df_base_botones[mask_ok & mask_entregado])
-
-                if cant_ok_stock > 0:
-                    admin_buttons.append({
-                        "label": f"✅ Ok Doc (En Stock) ({cant_ok_stock})",
-                        "key": "btn_est_ok_stock",
-                        "filter_val": "SPECIAL_OK_STOCK",
-                        "count": cant_ok_stock
-                    })
-                
-                if cant_ok_entregados > 0:
-                    admin_buttons.append({
-                        "label": f"✅📜 Ok Doc (Entregados) ({cant_ok_entregados})",
-                        "key": "btn_est_ok_entregado",
-                        "filter_val": "SPECIAL_OK_ENTREGADO",
-                        "count": cant_ok_entregados
-                    })
-
-            for label_btn, icono, keyword in estados_clave:
-                cant = len(df_base_botones[df_base_botones[col_target_admin].astype(str).str.contains(keyword, case=False, na=False)])
-                if cant > 0: 
-                    admin_buttons.append({
-                        "label": f"{icono} {label_btn} ({cant})",
-                        "key": f"btn_est_{keyword}",
-                        "filter_val": keyword,
-                        "count": cant
-                    })
-
-        if admin_buttons:
-            cols_a = st.columns(3)
-            for idx, btn_data in enumerate(admin_buttons):
-                col_to_use = cols_a[idx % 3]
-                with col_to_use:
-                    is_active = (st.session_state.filtro_estado_admin == btn_data["filter_val"])
-                    btn_type = "primary" if is_active else "secondary"
-                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
-                        st.session_state.filtro_estado_admin = btn_data["filter_val"]
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📦 2. Estado Físico (Stock)")
-        
-        df_para_stock_botones = df_doc.copy()
-        if st.session_state.filtro_estado_admin and col_target_admin:
-            val_a = st.session_state.filtro_estado_admin
-            if val_a == "SPECIAL_OK_STOCK":
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
-            elif val_a == "SPECIAL_OK_ENTREGADO":
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
-            else:
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains(val_a, case=False, na=False)]
-
-        stock_buttons = []
-        stock_buttons.append({
-            "label": f"♾️ Cualquiera ({len(df_para_stock_botones)})",
-            "key": "btn_stock_reset_doc",
-            "filter_val": None,
-            "count": len(df_para_stock_botones)
-        })
-
-        if "ESTADO" in df_doc.columns:
-            all_stock_states = ["EN EXHIBICIÓN", "SIN PRE ENTREGA", "CON PRE ENTREGA", "BLOQUEADO", "ENTREGADO", "RESERVADO", "DISPONIBLE"]
-            unique_in_db = df_doc["ESTADO"].dropna().str.upper().unique().tolist()
-            for u in unique_in_db:
-                if u not in all_stock_states: all_stock_states.append(u)
-
-            iconos_stock = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", "RESERVADO": "🔖", "DISPONIBLE": "🟢"}
-
-            for estado in all_stock_states:
-                cant = len(df_para_stock_botones[df_para_stock_botones["ESTADO"].astype(str).str.upper() == estado])
-                if cant > 0:
-                    icon = iconos_stock.get(estado, "🚗")
-                    stock_buttons.append({"label": f"{icon} {estado.title()} ({cant})", "key": f"btn_st_doc_{estado}", "filter_val": estado, "count": cant})
-
-        if stock_buttons:
-            cols_s = st.columns(4)
-            for idx, btn_data in enumerate(stock_buttons):
-                col_to_use = cols_s[idx % 4]
-                with col_to_use:
-                    is_active = (st.session_state.filtro_doc_stock == btn_data["filter_val"])
-                    btn_type = "primary" if is_active else "secondary"
-                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
-                        st.session_state.filtro_doc_stock = btn_data["filter_val"]
-
-        st.divider()
-        if st.session_state.filtro_estado_admin and col_target_admin:
-            val_admin = st.session_state.filtro_estado_admin
-            if val_admin == "SPECIAL_OK_STOCK":
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
-            elif val_admin == "SPECIAL_OK_ENTREGADO":
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
-            else:
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(val_admin, case=False, na=False)]
-
-        if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
-            df_doc = df_doc[df_doc["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
-
-        st.markdown(f"### 🔍 Resultados: {len(df_doc)} vehículos")
-        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
+        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "MODELO", "UBICACION", "ESTADO"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         
-        # Eliminar duplicados de nombres de columnas antes del render de documentación
         df_doc_render = df_doc[cols_reales].loc[:, ~df_doc[cols_reales].columns.duplicated()]
-        
-        if not df_doc_render.empty:
-            st.dataframe(df_doc_render, use_container_width=True, hide_index=True, column_config={"FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Factura", format="DD/MM/YYYY")})
-        else:
-            st.warning("No hay vehículos que cumplan con AMBOS criterios.")
+        st.dataframe(df_doc_render, use_container_width=True, hide_index=True)
 
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
     tab_peugeot, tab_citroen = st.tabs(["🦁 Peugeot", "🔴 Citroën"])
     with tab_peugeot:
         if os.path.exists("mapa_peugeot.jpg"): st.image("mapa_peugeot.jpg", use_container_width=True)
-        elif os.path.exists("Peugeot (2).jpeg"): st.image("Peugeot (2).jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_peugeot.jpg'")
     with tab_citroen:
         if os.path.exists("mapa_citroen.jpg"): st.image("mapa_citroen.jpg", use_container_width=True)
-        elif os.path.exists("Citroen.jpeg"): st.image("Citroen.jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_citroen.jpg'")
