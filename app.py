@@ -43,6 +43,7 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 def load_data(url, es_usados=False):
     try:
         df = pd.read_csv(url)
+        # Limpieza estándar de encabezados (quitar espacios en blanco al inicio/final)
         df.columns = df.columns.str.strip().str.upper()
         
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
@@ -52,22 +53,29 @@ def load_data(url, es_usados=False):
         col_entrega = None
         
         if es_usados:
-            # Forzamos la búsqueda de la columna exacta de usados en mayúsculas
-            col_entrega = "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)"
-            if col_entrega not in df.columns:
-                # Si por algún motivo cambia, busca una que contenga ambas palabras
+            # Intento 1: Buscar si alguna columna contiene "CONFIRMADA" y "ENTREGA" a la vez (evita fallos por paréntesis o saltos de línea)
+            col_entrega = next((c for c in df.columns if "CONFIRMADA" in c and "ENTREGA" in c), None)
+            
+            # Intento 2: Caída de respaldo si lo escribieron sin "confirmada"
+            if not col_entrega:
                 col_entrega = next((c for c in df.columns if "FECHA" in c and "ENTREGA" in c), None)
+            if not col_entrega:
+                col_entrega = next((c for c in df.columns if "CONTACTO" in c and "CLIENTE" in c), None)
         else:
-            # Lógica para 0KM
+            # Lógica estándar para 0KM
             col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
             if not col_entrega: 
                 col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
         
+        # Si encontramos la columna, procesamos las fechas
         if col_entrega and col_entrega in df.columns:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
+            
+            # Guardamos el nombre real detectado para usarlo después en el renderizado operativo de la tabla
+            df["COL_ORIGINAL_FECHA_USADOS"] = col_entrega
         
         # Mapeos secundarios comunes
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
@@ -80,7 +88,7 @@ def load_data(url, es_usados=False):
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-# Pasamos el parámetro para diferenciar las planillas en la carga
+# Pasamos el parámetro para diferenciar las planillas en la carga operativa
 df_0km = load_data(URL_0KM, es_usados=False)
 df_usados = load_data(URL_USADOS, es_usados=True)
 
@@ -175,23 +183,39 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                # --- ORDEN EXACTO SOLICITADO PARA USADOS ---
+                # --- PROCESAMIENTO DINÁMICO DE COLUMNAS PARA EVITAR VALUERROR ---
                 if es_usados:
+                    # Obtenemos la columna real que se usó para procesar la fecha original
+                    col_fecha_real_usados = df_final["COL_ORIGINAL_FECHA_USADOS"].iloc[0]
+                    
+                    # Buscamos por aproximación las columnas solicitadas por el usuario
+                    col_hora = next((c for c in df_final.columns if "HORA" in c), "HORA")
+                    col_cliente = next((c for c in df_final.columns if "CLIENTE" in c), "CLIENTE")
+                    col_tramite = next((c for c in df_final.columns if "TRAMITE" in c or "TRÁMITE" in c), "ESTADO DEL TRAMITE")
+                    col_tipo_u = next((c for c in df_final.columns if "TIPO" in c and "UNIDAD" in c), "TIPO DE UNIDAD")
+                    col_est_u = next((c for c in df_final.columns if "ESTADO" in c and "UNIDAD" in c), "ESTADO DE UNIDAD")
+                    col_marca = next((c for c in df_final.columns if "MARCA" in c), "MARCA")
+                    col_modelo = next((c for c in df_final.columns if "MODELO" in c), "MODELO")
+                    col_dominio = next((c for c in df_final.columns if "DOMINIO" in c or "PATENTE" in c), "DOMINIO")
+                    col_tel = next((c for c in df_final.columns if "TELEFONO" in c or "TEL" in c), "TELEFONO")
+                    col_mail = next((c for c in df_final.columns if "CORREO" in c or "MAIL" in c or "ELECTRONICO" in c), "CORREO ELECTRONICO")
+                    col_vend = next((c for c in df_final.columns if "VENDEDOR" in c or "BOLETO" in c), "VENDEDOR (BOLETO)")
+
                     cols_agenda = [
-                        "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)", 
-                        "HORA", 
-                        "CLIENTE", 
-                        "ESTADO DEL TRAMITE", 
-                        "TIPO DE UNIDAD", 
-                        "ESTADO DE UNIDAD", 
-                        "MARCA", 
-                        "MODELO", 
-                        "DOMINIO", 
-                        "TELEFONO", 
-                        "CORREO ELECTRONICO", 
-                        "VENDEDOR (BOLETO)"
+                        col_fecha_real_usados, 
+                        col_hora, 
+                        col_cliente, 
+                        col_tramite, 
+                        col_tipo_u, 
+                        col_est_u, 
+                        col_marca, 
+                        col_modelo, 
+                        col_dominio, 
+                        col_tel, 
+                        col_mail, 
+                        col_vend
                     ]
-                    col_sort_hora = "HORA"
+                    col_sort_hora = col_hora
                 else:
                     # Estructura clásica para 0KM
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
@@ -201,7 +225,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                     cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
                     col_sort_hora = "HS DE ENTREGA AL CLIENTE"
                 
-                # Filtrar solo las que existan físicamente en el excel
+                # Filtrar solo las que existan físicamente en el DataFrame cargado
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
@@ -213,16 +237,16 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                 st.dataframe(
                     df_render.sort_values(sort_cols), 
                     use_container_width=True, 
-                    hide_index=True,
-                    column_config={
-                        "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)": st.column_config.TextColumn("Fecha Confirmada")
-                    }
+                    hide_index=True
                 )
             else:
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos planificados en este rango.")
         else:
-            st.sidebar.warning("No se encontraron años de entrega válidos.")
+            st.sidebar.warning("No se encontraron fechas válidas para armar los años de entrega de Usados.")
+            # Panel de diagnóstico oculto por si necesitas auditar los nombres reales que llegan del Excel
+            with st.expander("🔍 Diagnóstico técnico: Ver encabezados reales de la planilla de Usados"):
+                st.write(list(df_target.columns))
     else:
         st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
 
@@ -303,19 +327,19 @@ elif opcion == "🛠️ Control Mantenimiento":
         for index, row in df_mant.iterrows():
             if pd.isnull(row["FECHA_ARRIBO_DT"]): continue
             fecha_arribo = row["FECHA_ARRIBO_DT"]
-            motivos_hoy, motivos_semana, motivos_atrasados = [], [], []
+            motivos_hoy, motifs_semana, motivos_atrasados = [], [], []
             for intervalo, columna in cols_control.items():
                 if not columna: continue
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 if estado_celda in ["OK", "N/A", "SI"]: continue
                 if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} días")
-                if inicio_semana <= fecha_vencimiento <= fin_semana: motivos_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
+                if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
                 if hoy >= fecha_vencimiento: motivos_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
             if motivos_hoy:
                 r = row.copy(); r["TAREA"] = ", ".join(motivos_hoy); lista_hoy.append(r)
-            if motivos_semana:
-                r = row.copy(); r["TAREA"] = ", ".join(motivos_semana); lista_semana.append(r)
+            if motifs_semana:
+                r = row.copy(); r["TAREA"] = ", ".join(motifs_semana); lista_semana.append(r)
             if motivos_atrasados:
                 r = row.copy(); r["TAREA"] = motivos_atrasados[-1]; lista_atrasados.append(r)
         
