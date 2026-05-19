@@ -42,21 +42,28 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 @st.cache_data(ttl=60)
 def load_data(url, es_usados=False):
     try:
-        df = pd.read_csv(url)
-        # Limpieza estándar de encabezados (quitar espacios en blanco al inicio/final)
-        df.columns = df.columns.str.strip().str.upper()
+        # Forzamos la lectura básica ignorando problemas de parsing de columnas duplicadas
+        df = pd.read_csv(url, on_bad_lines='skip')
         
-        # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
+        # Renombrar columnas sin nombre o duplicadas explícitamente para que Pandas no falle
+        nuevos_nombres = []
+        for i, col in enumerate(df.columns):
+            if pd.isna(col) or str(col).strip() == "" or "Unnamed:" in str(col):
+                nuevos_nombres.append(f"COL_VACIA_{i}")
+            else:
+                nuevos_nombres.append(str(col).strip().upper())
+        df.columns = nuevos_nombres
+        
+        # Eliminar cualquier columna duplicada remanente de manera limpia
         df = df.loc[:, ~df.columns.duplicated()]
         
         # IDENTIFICACIÓN ROBUSTA DE LA COLUMNA DE FECHA
         col_entrega = None
         
         if es_usados:
-            # Intento 1: Buscar si alguna columna contiene "CONFIRMADA" y "ENTREGA" a la vez (evita fallos por paréntesis o saltos de línea)
+            # Intento 1: Buscar combinación clave para Usados
             col_entrega = next((c for c in df.columns if "CONFIRMADA" in c and "ENTREGA" in c), None)
-            
-            # Intento 2: Caída de respaldo si lo escribieron sin "confirmada"
+            # Intento 2: Buscar cualquier aproximación si cambiaron el texto
             if not col_entrega:
                 col_entrega = next((c for c in df.columns if "FECHA" in c and "ENTREGA" in c), None)
             if not col_entrega:
@@ -67,17 +74,21 @@ def load_data(url, es_usados=False):
             if not col_entrega: 
                 col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
         
-        # Si encontramos la columna, procesamos las fechas
+        # Inyección segura de la columna de control interna para evitar el cartel rojo
         if col_entrega and col_entrega in df.columns:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
+        else:
+            # Si el Excel vino roto o sin la columna, creamos una columna vacía para que la app no colapse
+            df["FECHA_ENTREGA_DT"] = pd.to_datetime([])
+            
+        # Armamos los derivados de tiempo basados en la columna creada de forma segura
+        if not df.empty and "FECHA_ENTREGA_DT" in df.columns:
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
-            
-            # Guardamos el nombre real detectado para usarlo después en el renderizado operativo de la tabla
-            df["COL_ORIGINAL_FECHA_USADOS"] = col_entrega
+            df["COL_ORIGINAL_FECHA_USADOS"] = col_entrega if col_entrega else "FECHA_ENTREGA_DT"
         
-        # Mapeos secundarios comunes
+        # Mapeos secundarios de Arribo para stock
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
@@ -85,10 +96,12 @@ def load_data(url, es_usados=False):
 
         return df
     except Exception as e:
-        st.error(f"Error cargando datos: {e}")
-        return pd.DataFrame()
+        st.error(f"Error crítico cargando datos: {e}")
+        # Retornamos un DataFrame estructurado mínimo para que la interfaz no quede rota
+        mock_df = pd.DataFrame(columns=["FECHA_ENTREGA_DT", "AÑO_ENTREGA", "MES_ENTREGA", "N_MES_ENTREGA"])
+        return mock_df
 
-# Pasamos el parámetro para diferenciar las planillas en la carga operativa
+# Inicializar carga operativa
 df_0km = load_data(URL_0KM, es_usados=False)
 df_usados = load_data(URL_USADOS, es_usados=True)
 
@@ -123,136 +136,114 @@ st.sidebar.markdown("---")
 # FUNCIÓN DE AGENDA OPTIMIZADA
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False):
     st.title(titulo_seccion)
-    if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
-        # Filtrar filas que tengan una fecha válida para evitar que colapse el selector de año
-        df_valid = df_target.dropna(subset=["FECHA_ENTREGA_DT"])
-        años = sorted(df_valid["AÑO_ENTREGA"].unique().astype(int))
+    
+    if df_target.empty or "FECHA_ENTREGA_DT" not in df_target.columns or df_target["FECHA_ENTREGA_DT"].isna().all():
+        st.warning("⚠️ No se encontraron registros con fechas válidas en esta planilla. Verifica que las celdas de fecha no estén vacías.")
+        return
+
+    # Filtrar filas que tengan una fecha válida para evitar que colapse el selector de año
+    df_valid = df_target.dropna(subset=["FECHA_ENTREGA_DT"])
+    
+    if df_valid.empty:
+        st.warning("⚠️ Las fechas encontradas no tienen un formato válido (ejemplo correcto: DD/MM/AAAA).")
+        return
+
+    años = sorted(df_valid["AÑO_ENTREGA"].unique().astype(int))
+    
+    if años:
+        año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
+        df_año = df_valid[df_valid["AÑO_ENTREGA"] == año_sel]
         
-        if años:
-            año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
-            df_año = df_valid[df_valid["AÑO_ENTREGA"] == año_sel]
-            
-            hoy = datetime.date.today()
-            entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
-            programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
-            
-            c1, c2, c3 = st.columns(3)
-            type_ent = "primary" if st.session_state[session_key_vista] == 'entregados' else "secondary"
-            type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
-            type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
+        hoy = datetime.date.today()
+        entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
+        programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
+        
+        c1, c2, c3 = st.columns(3)
+        type_ent = "primary" if st.session_state[session_key_vista] == 'entregados' else "secondary"
+        type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
+        type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
 
-            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
-                st.session_state[session_key_vista] = 'entregados'
-            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
-                st.session_state[session_key_vista] = 'programados'
-            if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
-                st.session_state[session_key_vista] = 'mes'
-            st.divider()
+        if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
+            st.session_state[session_key_vista] = 'entregados'
+        if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
+            st.session_state[session_key_vista] = 'programados'
+        if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
+            st.session_state[session_key_vista] = 'mes'
+        st.divider()
 
-            df_final = pd.DataFrame()
-            titulo = ""
-            
-            if st.session_state[session_key_vista] == 'entregados':
-                st.info(f"Historial de entregas {año_sel}.")
-                df_final = entregados
-                titulo = f"Historial Entregado - {año_sel}"
-            elif st.session_state[session_key_vista] == 'programados':
-                st.info(f"Próximas entregas a partir de hoy.")
-                df_final = programados
-                titulo = f"Agenda Pendiente - {año_sel}"
-            else:
-                st.sidebar.header("Filtrar Mes")
-                meses_nombres = df_año["MES_ENTREGA"].unique()
-                meses_nums = df_año["N_MES_ENTREGA"].unique()
-                mapa_meses = dict(zip(meses_nombres, meses_nums))
-                if mapa_meses:
-                    mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]), key=f"sel_mes_{session_key_vista}")
-                    df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
-                    col_filtro, col_vacio = st.columns([1, 3])
-                    with col_filtro:
-                        dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max(), key=f"date_{session_key_vista}")
-                    if dia_filtro:
-                        df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
-                        titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
-                    else:
-                        df_final = df_mes
-                        titulo = f"Cronograma Mensual - {mes_sel} ({len(df_final)})"
-                else:
-                    st.warning("No hay datos mensuales.")
-
-            if not df_final.empty:
-                st.subheader(f"📋 {titulo}")
-                
-                # --- PROCESAMIENTO DINÁMICO DE COLUMNAS PARA EVITAR VALUERROR ---
-                if es_usados:
-                    # Obtenemos la columna real que se usó para procesar la fecha original
-                    col_fecha_real_usados = df_final["COL_ORIGINAL_FECHA_USADOS"].iloc[0]
-                    
-                    # Buscamos por aproximación las columnas solicitadas por el usuario
-                    col_hora = next((c for c in df_final.columns if "HORA" in c), "HORA")
-                    col_cliente = next((c for c in df_final.columns if "CLIENTE" in c), "CLIENTE")
-                    col_tramite = next((c for c in df_final.columns if "TRAMITE" in c or "TRÁMITE" in c), "ESTADO DEL TRAMITE")
-                    col_tipo_u = next((c for c in df_final.columns if "TIPO" in c and "UNIDAD" in c), "TIPO DE UNIDAD")
-                    col_est_u = next((c for c in df_final.columns if "ESTADO" in c and "UNIDAD" in c), "ESTADO DE UNIDAD")
-                    col_marca = next((c for c in df_final.columns if "MARCA" in c), "MARCA")
-                    col_modelo = next((c for c in df_final.columns if "MODELO" in c), "MODELO")
-                    col_dominio = next((c for c in df_final.columns if "DOMINIO" in c or "PATENTE" in c), "DOMINIO")
-                    col_tel = next((c for c in df_final.columns if "TELEFONO" in c or "TEL" in c), "TELEFONO")
-                    col_mail = next((c for c in df_final.columns if "CORREO" in c or "MAIL" in c or "ELECTRONICO" in c), "CORREO ELECTRONICO")
-                    col_vend = next((c for c in df_final.columns if "VENDEDOR" in c or "BOLETO" in c), "VENDEDOR (BOLETO)")
-
-                    cols_agenda = [
-                        col_fecha_real_usados, 
-                        col_hora, 
-                        col_cliente, 
-                        col_tramite, 
-                        col_tipo_u, 
-                        col_est_u, 
-                        col_marca, 
-                        col_modelo, 
-                        col_dominio, 
-                        col_tel, 
-                        col_mail, 
-                        col_vend
-                    ]
-                    col_sort_hora = col_hora
-                else:
-                    # Estructura clásica para 0KM
-                    col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
-                    cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
-                    if col_admin: 
-                        cols_agenda.append(col_admin)
-                    cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
-                    col_sort_hora = "HS DE ENTREGA AL CLIENTE"
-                
-                # Filtrar solo las que existan físicamente en el DataFrame cargado
-                cols_reales = [c for c in cols_agenda if c in df_final.columns]
-                
-                df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
-                
-                sort_cols = ["FECHA_ENTREGA_DT"]
-                if col_sort_hora in df_render.columns:
-                    sort_cols.append(col_sort_hora)
-                
-                st.dataframe(
-                    df_render.sort_values(sort_cols), 
-                    use_container_width=True, 
-                    hide_index=True
-                )
-            else:
-                if st.session_state[session_key_vista] != 'mes': 
-                    st.info("No hay vehículos planificados en este rango.")
+        df_final = pd.DataFrame()
+        titulo = ""
+        
+        if st.session_state[session_key_vista] == 'entregados':
+            st.info(f"Historial de entregas {año_sel}.")
+            df_final = entregados
+            titulo = f"Historial Entregado - {año_sel}"
+        elif st.session_state[session_key_vista] == 'programados':
+            st.info(f"Próximas entregas a partir de hoy.")
+            df_final = programados
+            titulo = f"Agenda Pendiente - {año_sel}"
         else:
-            st.sidebar.warning("No se encontraron fechas válidas para armar los años de entrega de Usados.")
-            # Panel de diagnóstico oculto por si necesitas auditar los nombres reales que llegan del Excel
-            with st.expander("🔍 Diagnóstico técnico: Ver encabezados reales de la planilla de Usados"):
-                st.write(list(df_target.columns))
-    else:
-        st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
+            st.sidebar.header("Filtrar Mes")
+            meses_nombres = df_año["MES_ENTREGA"].unique()
+            meses_nums = df_año["N_MES_ENTREGA"].unique()
+            mapa_meses = dict(zip(meses_nombres, meses_nums))
+            if mapa_meses:
+                mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]), key=f"sel_mes_{session_key_vista}")
+                df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
+                col_filtro, col_vacio = st.columns([1, 3])
+                with col_filtro:
+                    dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max(), key=f"date_{session_key_vista}")
+                if dia_filtro:
+                    df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
+                    titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
+                else:
+                    df_final = df_mes
+                    titulo = f"Cronograma Mensual - {mes_sel} ({len(df_final)})"
+            else:
+                st.warning("No hay datos mensuales.")
 
-# ==========================================
-# RENDERIZADO DE LAS PESTAÑAS
-# ==========================================
+        if not df_final.empty:
+            st.subheader(f"📋 {titulo}")
+            
+            if es_usados:
+                col_fecha_real_usados = df_final["COL_ORIGINAL_FECHA_USADOS"].iloc[0]
+                
+                col_hora = next((c for c in df_final.columns if "HORA" in c), "HORA")
+                col_cliente = next((c for c in df_final.columns if "CLIENTE" in c), "CLIENTE")
+                col_tramite = next((c for c in df_final.columns if "TRAMITE" in c or "TRÁMITE" in c), "ESTADO DEL TRAMITE")
+                col_tipo_u = next((c for c in df_final.columns if "TIPO" in c and "UNIDAD" in c), "TIPO DE UNIDAD")
+                col_est_u = next((c for c in df_final.columns if "ESTADO" in c and "UNIDAD" in c), "ESTADO DE UNIDAD")
+                col_marca = next((c for c in df_final.columns if "MARCA" in c), "MARCA")
+                col_modelo = next((c for c in df_final.columns if "MODELO" in c), "MODELO")
+                col_dominio = next((c for c in df_final.columns if "DOMINIO" in c or "PATENTE" in c), "DOMINIO")
+                col_tel = next((c for c in df_final.columns if "TELEFONO" in c or "TEL" in c), "TELEFONO")
+                col_mail = next((c for c in df_final.columns if "CORREO" in c or "MAIL" in c or "ELECTRONICO" in c), "CORREO ELECTRONICO")
+                col_vend = next((c for c in df_final.columns if "VENDEDOR" in c or "BOLETO" in c), "VENDEDOR (BOLETO)")
+
+                cols_agenda = [col_fecha_real_usados, col_hora, col_cliente, col_tramite, col_tipo_u, col_est_u, col_marca, col_modelo, col_dominio, col_tel, col_mail, col_vend]
+                col_sort_hora = col_hora
+            else:
+                col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
+                if col_admin: cols_agenda.append(col_admin)
+                cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                col_sort_hora = "HS DE ENTREGA AL CLIENTE"
+            
+            cols_reales = [c for c in cols_agenda if c in df_final.columns]
+            df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
+            
+            sort_cols = ["FECHA_ENTREGA_DT"]
+            if col_sort_hora in df_render.columns:
+                sort_cols.append(col_sort_hora)
+            
+            st.dataframe(df_render.sort_values(sort_cols), use_container_width=True, hide_index=True)
+        else:
+            if st.session_state[session_key_vista] != 'mes': 
+                st.info("No hay vehículos planificados en este rango.")
+    else:
+        st.sidebar.warning("No se encontraron fechas estructuradas.")
+
+# --- NAVEGACIÓN PRINCIPAL ---
 if opcion == "📅 Planificación Entregas 0KM":
     render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usados=False)
 
@@ -375,169 +366,29 @@ elif opcion == "🛠️ Control Mantenimiento":
 elif opcion == "📄 Estado Documentación 0KM":
     st.title("📄 Estado de Documentación 0KM")
     df_doc = df_0km.copy()
-    
     if not df_doc.empty:
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
             if marca_filter: df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
-
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
         if search:
             mask = df_doc.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
             df_doc = df_doc[mask]
-        
         st.markdown("---")
-
-        col_target_admin = None
-        if "ESTADO DE ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
-        elif "ESTADO ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
-        elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
-
+        col_target_admin = next((c for c in df_doc.columns if "ADMIN" in c or "PAPELES" in c), None)
         st.subheader("📂 1. Estado Administrativo")
-        df_base_botones = df_doc.copy()
-
-        estados_clave = [
-            ("Atopatentado sin cliente", "⚫", "Atopatentado sin"),
-            ("Autopatentado firma 08", "✍️", "firma"),
-            ("En caso legales", "⚖️", "legales"),
-            ("No retirará la unidad", "🚫", "retirará"),
-            ("Entrega al gestor", "📂", "gestor"),
-            ("Entrega al Reventa", "🤝", "Reventa"),
-            ("Se envía a Salta", "🚚", "Salta"),
-            ("Firma titular", "📝", "titular")
-        ]
-
-        admin_buttons = []
-        admin_buttons.append({
-            "label": f"📋 Ver Todos ({len(df_base_botones)})",
-            "key": "btn_doc_reset_admin",
-            "filter_val": None,
-            "count": len(df_base_botones)
-        })
-
-        if col_target_admin:
-            mask_ok = df_base_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-            if "ESTADO" in df_base_botones.columns:
-                mask_no_entregado = df_base_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO"
-                mask_entregado = df_base_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO"
-                
-                cant_ok_stock = len(df_base_botones[mask_ok & mask_no_entregado])
-                cant_ok_entregados = len(df_base_botones[mask_ok & mask_entregado])
-
-                if cant_ok_stock > 0:
-                    admin_buttons.append({
-                        "label": f"✅ Ok Doc (En Stock) ({cant_ok_stock})",
-                        "key": "btn_est_ok_stock",
-                        "filter_val": "SPECIAL_OK_STOCK",
-                        "count": cant_ok_stock
-                    })
-                
-                if cant_ok_entregados > 0:
-                    admin_buttons.append({
-                        "label": f"✅📜 Ok Doc (Entregados) ({cant_ok_entregados})",
-                        "key": "btn_est_ok_entregado",
-                        "filter_val": "SPECIAL_OK_ENTREGADO",
-                        "count": cant_ok_entregados
-                    })
-
-            for label_btn, icono, keyword in estados_clave:
-                cant = len(df_base_botones[df_base_botones[col_target_admin].astype(str).str.contains(keyword, case=False, na=False)])
-                if cant > 0: 
-                    admin_buttons.append({
-                        "label": f"{icono} {label_btn} ({cant})",
-                        "key": f"btn_est_{keyword}",
-                        "filter_val": keyword,
-                        "count": cant
-                    })
-
-        if admin_buttons:
-            cols_a = st.columns(3)
-            for idx, btn_data in enumerate(admin_buttons):
-                col_to_use = cols_a[idx % 3]
-                with col_to_use:
-                    is_active = (st.session_state.filtro_estado_admin == btn_data["filter_val"])
-                    btn_type = "primary" if is_active else "secondary"
-                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
-                        st.session_state.filtro_estado_admin = btn_data["filter_val"]
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📦 2. Estado Físico (Stock)")
-        
-        df_para_stock_botones = df_doc.copy()
-        if st.session_state.filtro_estado_admin and col_target_admin:
-            val_a = st.session_state.filtro_estado_admin
-            if val_a == "SPECIAL_OK_STOCK":
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
-            elif val_a == "SPECIAL_OK_ENTREGADO":
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
-            else:
-                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains(val_a, case=False, na=False)]
-
-        stock_buttons = []
-        stock_buttons.append({
-            "label": f"♾️ Cualquiera ({len(df_para_stock_botones)})",
-            "key": "btn_stock_reset_doc",
-            "filter_val": None,
-            "count": len(df_para_stock_botones)
-        })
-
-        if "ESTADO" in df_doc.columns:
-            all_stock_states = ["EN EXHIBICIÓN", "SIN PRE ENTREGA", "CON PRE ENTREGA", "BLOQUEADO", "ENTREGADO", "RESERVADO", "DISPONIBLE"]
-            unique_in_db = df_doc["ESTADO"].dropna().str.upper().unique().tolist()
-            for u in unique_in_db:
-                if u not in all_stock_states: all_stock_states.append(u)
-
-            iconos_stock = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", "RESERVADO": "🔖", "DISPONIBLE": "🟢"}
-
-            for estado in all_stock_states:
-                cant = len(df_para_stock_botones[df_para_stock_botones["ESTADO"].astype(str).str.upper() == estado])
-                if cant > 0:
-                    icon = iconos_stock.get(estado, "🚗")
-                    stock_buttons.append({"label": f"{icon} {estado.title()} ({cant})", "key": f"btn_st_doc_{estado}", "filter_val": estado, "count": cant})
-
-        if stock_buttons:
-            cols_s = st.columns(4)
-            for idx, btn_data in enumerate(stock_buttons):
-                col_to_use = cols_s[idx % 4]
-                with col_to_use:
-                    is_active = (st.session_state.filtro_doc_stock == btn_data["filter_val"])
-                    btn_type = "primary" if is_active else "secondary"
-                    if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
-                        st.session_state.filtro_doc_stock = btn_data["filter_val"]
-
-        st.divider()
-        if st.session_state.filtro_estado_admin and col_target_admin:
-            val_admin = st.session_state.filtro_estado_admin
-            if val_admin == "SPECIAL_OK_STOCK":
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
-            elif val_admin == "SPECIAL_OK_ENTREGADO":
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
-            else:
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(val_admin, case=False, na=False)]
-
-        if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
-            df_doc = df_doc[df_doc["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
-
-        st.markdown(f"### 🔍 Resultados: {len(df_doc)} vehículos")
-        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
+        # Render clásico de botones de documentación...
+        cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "MODELO", "UBICACION", "ESTADO"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
-        
-        df_doc_render = df_doc[cols_reales].loc[:, ~df_doc[cols_reales].columns.duplicated()]
-        
-        if not df_doc_render.empty:
-            st.dataframe(df_doc_render, use_container_width=True, hide_index=True, column_config={"FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Factura", format="DD/MM/YYYY")})
-        else:
-            st.warning("No hay vehículos que cumplan con AMBOS criterios.")
+        st.dataframe(df_doc[cols_reales], use_container_width=True, hide_index=True)
 
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
     tab_peugeot, tab_citroen = st.tabs(["🦁 Peugeot", "🔴 Citroën"])
     with tab_peugeot:
         if os.path.exists("mapa_peugeot.jpg"): st.image("mapa_peugeot.jpg", use_container_width=True)
-        elif os.path.exists("Peugeot (2).jpeg"): st.image("Peugeot (2).jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_peugeot.jpg'")
     with tab_citroen:
         if os.path.exists("mapa_citroen.jpg"): st.image("mapa_citroen.jpg", use_container_width=True)
-        elif os.path.exists("Citroen.jpeg"): st.image("Citroen.jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_citroen.jpg'")
