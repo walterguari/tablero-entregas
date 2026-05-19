@@ -30,7 +30,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- ENLACES A GOOGLE SHEETS ---
+# --- CARGA DE DATOS ---
 SHEET_ID_0KM = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
 GID_0KM = "1504374770"
 URL_0KM = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_0KM}/export?format=csv&gid={GID_0KM}"
@@ -45,57 +45,44 @@ def load_data(url):
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip().str.upper()
         
-        # BUSCADOR FLEXIBLE DE FECHA DE ENTREGA (Soporta múltiples estructuras)
-        col_entrega = None
-        opciones_clave = [
-            "CONFIRMACI DE ENTREGA", "FECHA DE ENTREGA", "FECHA ENTREGA", 
-            "FECHA_ENTREGA", "CONFIRMACION DE ENTREGA", "FECHA DE ENTREGA AL CLIENTE",
-            "F. ENTREGA", "ENTREGA"
-        ]
-        for opcion in opciones_clave:
-            if opcion in df.columns:
-                col_entrega = opcion
-                break
+        # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
+        df = df.loc[:, ~df.columns.duplicated()]
         
-        if not col_entrega:
-            col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
+        # PROCESAMIENTO FECHAS
+        col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
         if not col_entrega: 
-            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c and "ARRIBO" not in c and "PAPELES" not in c and "DOC" not in c), None)    
-        if not col_entrega:
-            col_entrega = next((c for c in df.columns if "ENTREGA" in c), None)
-
+            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
         if col_entrega:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
         
-        # Procesamiento de otras columnas de fecha
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
 
-        col_fact = next((c for c in df.columns if "FACTURACION" in c or "FACT" in c), None)
-        if col_fact and col_fact in df.columns:
+        col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
+        if col_fact in df.columns:
             df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
 
-        col_papeles = next((c for c in df.columns if "PAPELES" in c or "DOCUMENTACION" in c), None)
-        if col_papeles and col_papeles in df.columns:
+        col_papeles = "FECHA DISPONIBILIDAD PAPELES"
+        if col_papeles in df.columns:
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
-        if col_tel: df["TELEFONO_CLEAN"] = df[col_tel]
-        
+        if col_tel: 
+            df["TELEFONO_CLEAN"] = df[col_tel]
         col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
-        if col_mail: df["CORREO_CLEAN"] = df[col_mail]
+        if col_mail: 
+            df["CORREO_CLEAN"] = df[col_mail]
 
         return df
     except Exception as e:
-        st.error(f"Error procesando la planilla: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-# Carga limpia e independiente
 df_0km = load_data(URL_0KM)
 df_usados = load_data(URL_USADOS)
 
@@ -110,9 +97,12 @@ if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mante
 # ==========================================
 # BARRA LATERAL (LOGO Y NAVEGACIÓN)
 # ==========================================
-if os.path.exists("logo.png.png"): st.sidebar.image("logo.png.png", use_container_width=True)
-elif os.path.exists("logo.png"): st.sidebar.image("logo.png", use_container_width=True)
-elif os.path.exists("logo.jpg"): st.sidebar.image("logo.jpg", use_container_width=True)
+# Saneamiento de carga del logo
+logo_paths = ["logo.png", "logo.png.png", "logo.jpg"]
+for path in logo_paths:
+    if os.path.exists(path):
+        st.sidebar.image(path, use_container_width=True)
+        break
 
 st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
@@ -125,127 +115,98 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# LÓGICA DE AGUDA COMPARTIDA E INMUNE A ERRORES DE ORDENAMIENTO
+# FUNCIÓN DE AGENDA OPTIMIZADA
 def render_agenda(df_target, session_key_vista, titulo_seccion):
     st.title(titulo_seccion)
-    
-    if df_target.empty:
-        st.warning("⚠️ La planilla seleccionada está vacía o no se pudo cargar.")
-        return
+    if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
+        años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
+        if años:
+            año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
+            df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
+            
+            hoy = datetime.date.today()
+            entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
+            programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
+            
+            c1, c2, c3 = st.columns(3)
+            type_ent = "primary" if st.session_state[session_key_vista] == 'entregados' else "secondary"
+            type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
+            type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
 
-    if "FECHA_ENTREGA_DT" not in df_target.columns:
-        st.error("❌ No se detectó la columna con la fecha de entrega en esta planilla.")
-        with st.expander("Ver columnas reales encontradas"):
-            st.write(list(df_target.columns))
-        return
+            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'entregados'
+            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'programados'
+            if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'mes'
+            st.divider()
 
-    # Quitar nulos de fecha de la vista operativa
-    df_clean = df_target.dropna(subset=["FECHA_ENTREGA_DT"]).copy()
-    
-    if df_clean.empty:
-        st.info("ℹ️ No hay fechas válidas cargadas en este archivo.")
-        return
-
-    años = sorted(df_clean["AÑO_ENTREGA"].unique().astype(int))
-    if años:
-        año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
-        df_año = df_clean[df_clean["AÑO_ENTREGA"] == año_sel]
-        
-        hoy = datetime.date.today()
-        entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
-        programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
-        
-        c1, c2, c3 = st.columns(3)
-        type_ent = "primary" if st.session_state[session_key_vista] == 'entregados' else "secondary"
-        type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
-        type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
-
-        if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
-            st.session_state[session_key_vista] = 'entregados'
-        if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
-            st.session_state[session_key_vista] = 'programados'
-        if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
-            st.session_state[session_key_vista] = 'mes'
-        st.divider()
-
-        df_final = pd.DataFrame()
-        titulo = ""
-        
-        if st.session_state[session_key_vista] == 'entregados':
-            st.info(f"Historial de entregas {año_sel}.")
-            df_final = entregados
-            titulo = f"Historial Entregado - {año_sel}"
-        elif st.session_state[session_key_vista] == 'programados':
-            st.info(f"Próximas entregas a partir de hoy.")
-            df_final = programados
-            titulo = f"Agenda Pendiente - {año_sel}"
-        else:
-            st.sidebar.header("Filtrar Mes")
-            meses_nombres = df_año["MES_ENTREGA"].unique()
-            meses_nums = df_año["N_MES_ENTREGA"].unique()
-            mapa_meses = dict(zip(meses_nombres, meses_nums))
-            if mapa_meses:
-                mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]), key=f"sel_mes_{session_key_vista}")
-                df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
-                col_filtro, _ = st.columns([1, 3])
-                with col_filtro:
-                    dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max(), key=f"date_{session_key_vista}")
-                if dia_filtro:
-                    df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
-                    titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
-                else:
-                    df_final = df_mes
-                    titulo = f"Cronograma Mensual - {mes_sel} ({len(df_final)})"
+            df_final = pd.DataFrame()
+            titulo = ""
+            
+            if st.session_state[session_key_vista] == 'entregados':
+                st.info(f"Historial de entregas {año_sel}.")
+                df_final = entregados
+                titulo = f"Historial Entregado - {año_sel}"
+            elif st.session_state[session_key_vista] == 'programados':
+                st.info(f"Próximas entregas a partir de hoy.")
+                df_final = programados
+                titulo = f"Agenda Pendiente - {año_sel}"
             else:
-                st.warning("No hay datos mensuales.")
+                st.sidebar.header("Filtrar Mes")
+                meses_nombres = df_año["MES_ENTREGA"].unique()
+                meses_nums = df_año["N_MES_ENTREGA"].unique()
+                mapa_meses = dict(zip(meses_nombres, meses_nums))
+                if mapa_meses:
+                    mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]), key=f"sel_mes_{session_key_vista}")
+                    df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
+                    col_filtro, col_vacio = st.columns([1, 3])
+                    with col_filtro:
+                        dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max(), key=f"date_{session_key_vista}")
+                    if dia_filtro:
+                        df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
+                        titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
+                    else:
+                        df_final = df_mes
+                        titulo = f"Cronograma Mensual - {mes_sel} ({len(df_final)})"
+                else:
+                    st.warning("No hay datos mensuales.")
 
-        if not df_final.empty:
-            st.subheader(f"📋 {titulo}")
-            
-            # Buscadores elásticos de columnas para mapear 0KM y Usados a la vez
-            col_admin = next((c for c in df_clean.columns if "ESTADO" in c and "ADMIN" in c), None)
-            col_hora = next((c for c in df_clean.columns if "HORA" in c or "HS" in c or "HORARIO" in c), None)
-            col_cliente = next((c for c in df_clean.columns if "CLIENTE" in c or "COMPRADOR" in c), "CLIENTE")
-            col_vin = next((c for c in df_clean.columns if "VIN" in c or "DOMINIO" in c or "PATENTE" in c), "VIN")
-            col_vendedor = next((c for c in df_clean.columns if "VENDEDOR" in c or "ASESOR" in c), "VENDEDOR")
-            col_marca = next((c for c in df_clean.columns if "MARCA" in c), "MARCA")
-            col_modelo = next((c for c in df_clean.columns if "MODELO" in c), "MODELO")
-            col_canal = next((c for c in df_clean.columns if "CANAL" in c), "CANAL DE VENTA")
-
-            cols_agenda = ["FECHA_ENTREGA_DT"]
-            if col_hora: cols_agenda.append(col_hora)
-            cols_agenda.append(col_cliente)
-            if col_admin: cols_agenda.append(col_admin)
-            
-            cols_agenda.extend([col_marca, col_modelo, col_vin, col_canal, "TELEFONO_CLEAN", "CORREO_CLEAN", col_vendedor])
-            cols_reales = [c for c in cols_agenda if c in df_final.columns]
-            
-            # ORDENAMIENTO BLINDADO: Si falla por strings mixtos en la hora, ordena de forma segura por fecha pura.
-            try:
-                sort_cols = ["FECHA_ENTREGA_DT"]
-                if col_hora and col_hora in df_final.columns:
-                    sort_cols.append(col_hora)
-                df_sorted = df_final[cols_reales].sort_values(by=sort_cols)
-            except Exception:
-                df_sorted = df_final[cols_reales].sort_values(by="FECHA_ENTREGA_DT")
-            
-            st.dataframe(
-                df_sorted, 
-                use_container_width=True, 
-                hide_index=True, 
-                column_config={
-                    "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                    col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
-                }
-            )
+            if not df_final.empty:
+                st.subheader(f"📋 {titulo}")
+                
+                col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                
+                cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
+                if col_admin: 
+                    cols_agenda.append(col_admin)
+                
+                cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                cols_reales = [c for c in cols_agenda if c in df_final.columns]
+                
+                # Garantizar que las columnas duplicadas remanentes en el subset no rompan st.dataframe
+                df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
+                
+                st.dataframe(
+                    df_render.sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]), 
+                    use_container_width=True, 
+                    hide_index=True, 
+                    column_config={
+                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                        col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
+                    }
+                )
+            else:
+                if st.session_state[session_key_vista] != 'mes': 
+                    st.info("No hay vehículos aquí.")
         else:
-            if st.session_state[session_key_vista] != 'mes': 
-                st.info("No hay vehículos planificados en este bloque.")
+            st.sidebar.warning("No se encontraron años en los datos.")
+    else:
+        st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
 
 # ==========================================
-# RENDERIZADO DE LAS OPCIONES
+# RENDERIZADO DE LAS PESTAÑAS
 # ==========================================
-
 if opcion == "📅 Planificación Entregas 0KM":
     render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM")
 
@@ -516,8 +477,11 @@ elif opcion == "📄 Estado Documentación 0KM":
         cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         
-        if not df_doc.empty:
-            st.dataframe(df_doc[cols_reales], use_container_width=True, hide_index=True, column_config={"FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Factura", format="DD/MM/YYYY")})
+        # Eliminar duplicados de nombres de columnas antes del render de documentación
+        df_doc_render = df_doc[cols_reales].loc[:, ~df_doc[cols_reales].columns.duplicated()]
+        
+        if not df_doc_render.empty:
+            st.dataframe(df_doc_render, use_container_width=True, hide_index=True, column_config={"FECHA DE FACTURACION DE LA UNIDAD": st.column_config.DateColumn("F. Factura", format="DD/MM/YYYY")})
         else:
             st.warning("No hay vehículos que cumplan con AMBOS criterios.")
 
