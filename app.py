@@ -90,9 +90,11 @@ def load_data(url, fila_header=0):
         if col_papeles in df.columns:
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
+        # Normalización de Teléfono y Correo para usar nombres genéricos limpios
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: 
             df["TELEFONO_CLEAN"] = df[col_tel]
+            
         col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
         if col_mail: 
             df["CORREO_CLEAN"] = df[col_mail]
@@ -134,8 +136,8 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# FUNCIÓN DE AGENDA OPTIMIZADA
-def render_agenda(df_target, session_key_vista, titulo_seccion, solo_columnas_basicas=False):
+# FUNCIÓN DE AGENDA OPTIMIZADA (SOPORTA LAS COLUMNAS DETALLADAS PARA AMBAS PLANILLAS)
+def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
         años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
@@ -194,37 +196,57 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, solo_columnas_ba
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                if solo_columnas_basicas:
-                    col_fecha_origen = next((c for c in df_target.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
-                    if not col_fecha_origen:
-                        col_fecha_origen = "FECHA_ENTREGA_DT"
-                        
-                    cols_reales = [col_fecha_origen, "CLIENTE"]
-                    cols_reales = [c for c in cols_reales if c in df_final.columns]
+                config_columnas = {}
+                
+                if es_usado:
+                    # ESTRUCTURA ESPECÍFICA SOLICITADA PARA LA PLANILLA DE USADOS
+                    cols_agenda = [
+                        "FECHA_ENTREGA_DT", 
+                        "HORA", 
+                        "CLIENTE", 
+                        "ESTADO DEL TRAMITE", 
+                        "TIPO DE UNIDAD", 
+                        "ESTADO DE UNIDAD", 
+                        "MARCA", 
+                        "MODELO", 
+                        "DOMINIO", 
+                        "TELEFONO_CLEAN", 
+                        "CORREO_CLEAN", 
+                        "VENDEDOR (BOLETO)"
+                    ]
                     
-                    df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
-                    
+                    # Mapeo visual amigable para las cabeceras de la tabla de Usados
                     config_columnas = {
+                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmada de Entrega", format="DD/MM/YYYY"),
+                        "HORA": st.column_config.TextColumn("Hora"),
                         "CLIENTE": st.column_config.TextColumn("Cliente"),
+                        "ESTADO DEL TRAMITE": st.column_config.TextColumn("Estado del Trámite"),
+                        "TIPO DE UNIDAD": st.column_config.TextColumn("Tipo de Unidad"),
+                        "ESTADO DE UNIDAD": st.column_config.TextColumn("Estado de Unidad"),
+                        "MARCA": st.column_config.TextColumn("Marca"),
+                        "MODELO": st.column_config.TextColumn("Modelo"),
+                        "DOMINIO": st.column_config.TextColumn("Dominio"),
+                        "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                        "CORREO_CLEAN": st.column_config.TextColumn("Correo Electrónico"),
+                        "VENDEDOR (BOLETO)": st.column_config.TextColumn("Vendedor (Boleto)")
                     }
-                    if col_fecha_origen == "FECHA_ENTREGA_DT":
-                        config_columnas["FECHA_ENTREGA_DT"] = st.column_config.DateColumn("Fecha Confirmada de Entrega (contacto con el cliente)", format="DD/MM/YYYY")
-                    else:
-                        config_columnas[col_fecha_origen] = st.column_config.TextColumn("Fecha Confirmada de Entrega (contacto con el cliente)")
                 else:
+                    # ESTRUCTURA ORIGINAL PARA LA PLANILLA DE 0KM
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
                     if col_admin: 
                         cols_agenda.append(col_admin)
-                    
                     cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
-                    cols_reales = [c for c in cols_agenda if c in df_final.columns]
                     
-                    df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                        "HS DE ENTREGA AL CLIENTE": st.column_config.TextColumn("Hora"),
                         col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
                     }
+                
+                # Filtrar solo las columnas que existan realmente en el DataFrame actual
+                cols_reales = [c for c in cols_agenda if c in df_final.columns]
+                df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                 
                 st.dataframe(
                     df_render.sort_values(cols_reales[0] if cols_reales else "CLIENTE"), 
@@ -244,10 +266,10 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, solo_columnas_ba
 # RENDERIZADO DE LAS PESTAÑAS
 # ==========================================
 if opcion == "📅 Planificación Entregas 0KM":
-    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", solo_columnas_basicas=False)
+    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usado=False)
 
 elif opcion == "🚗 Agenda de Usados":
-    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", solo_columnas_basicas=True)
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", es_usado=True)
 
 elif opcion == "📦 Control de Stock 0KM":
     st.title("📦 Tablero de Stock 0KM")
