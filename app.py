@@ -40,7 +40,7 @@ GID_USADOS = "183300599"
 URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?format=csv&gid={GID_USADOS}"
 
 @st.cache_data(ttl=60)
-def load_data(url):
+def load_data(url, es_usados=False):
     try:
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip().str.upper()
@@ -48,43 +48,41 @@ def load_data(url):
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
         df = df.loc[:, ~df.columns.duplicated()]
         
-        # PROCESAMIENTO FECHAS
-        col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
-        if not col_entrega: 
-            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
-        if col_entrega:
+        # IDENTIFICACIÓN ROBUSTA DE LA COLUMNA DE FECHA
+        col_entrega = None
+        
+        if es_usados:
+            # Forzamos la búsqueda de la columna exacta de usados en mayúsculas
+            col_entrega = "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)"
+            if col_entrega not in df.columns:
+                # Si por algún motivo cambia, busca una que contenga ambas palabras
+                col_entrega = next((c for c in df.columns if "FECHA" in c and "ENTREGA" in c), None)
+        else:
+            # Lógica para 0KM
+            col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
+            if not col_entrega: 
+                col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
+        
+        if col_entrega and col_entrega in df.columns:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
         
+        # Mapeos secundarios comunes
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
-
-        col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
-        if col_fact in df.columns:
-            df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
-
-        col_papeles = "FECHA DISPONIBILIDAD PAPELES"
-        if col_papeles in df.columns:
-            df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
-
-        col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
-        if col_tel: 
-            df["TELEFONO_CLEAN"] = df[col_tel]
-        col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c or "ELECTRONICO" in c), None)
-        if col_mail: 
-            df["CORREO_CLEAN"] = df[col_mail]
 
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-df_0km = load_data(URL_0KM)
-df_usados = load_data(URL_USADOS)
+# Pasamos el parámetro para diferenciar las planillas en la carga
+df_0km = load_data(URL_0KM, es_usados=False)
+df_usados = load_data(URL_USADOS, es_usados=True)
 
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
@@ -118,10 +116,13 @@ st.sidebar.markdown("---")
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
-        años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
+        # Filtrar filas que tengan una fecha válida para evitar que colapse el selector de año
+        df_valid = df_target.dropna(subset=["FECHA_ENTREGA_DT"])
+        años = sorted(df_valid["AÑO_ENTREGA"].unique().astype(int))
+        
         if años:
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
-            df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
+            df_año = df_valid[df_valid["AÑO_ENTREGA"] == año_sel]
             
             hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
@@ -174,9 +175,8 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                # --- CONFIGURACIÓN DE COLUMNAS SEGÚN EL TIPO DE ORIGEN ---
+                # --- ORDEN EXACTO SOLICITADO PARA USADOS ---
                 if es_usados:
-                    # Columnas específicas solicitadas para Usados (mapeadas a mayúsculas)
                     cols_agenda = [
                         "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)", 
                         "HORA", 
@@ -201,35 +201,28 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                     cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
                     col_sort_hora = "HS DE ENTREGA AL CLIENTE"
                 
+                # Filtrar solo las que existan físicamente en el excel
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 
-                # Saneamiento anti-duplicados
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                 
-                # Determinar criterio de ordenación secundaria por hora si existe
                 sort_cols = ["FECHA_ENTREGA_DT"]
                 if col_sort_hora in df_render.columns:
                     sort_cols.append(col_sort_hora)
                 
-                # Configuración de visualización limpia de fechas
-                col_config_custom = {
-                    "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY")
-                }
-                # Ocultar visualmente la columna interna duplicada si convive con el string largo original
-                if "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)" in df_render.columns:
-                    col_config_custom["FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)"] = st.column_config.TextColumn("Fecha original")
-
                 st.dataframe(
                     df_render.sort_values(sort_cols), 
                     use_container_width=True, 
-                    hide_index=True, 
-                    column_config=col_config_custom
+                    hide_index=True,
+                    column_config={
+                        "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)": st.column_config.TextColumn("Fecha Confirmada")
+                    }
                 )
             else:
                 if st.session_state[session_key_vista] != 'mes': 
-                    st.info("No hay vehículos aquí.")
+                    st.info("No hay vehículos planificados en este rango.")
         else:
-            st.sidebar.warning("No se encontraron años en los datos.")
+            st.sidebar.warning("No se encontraron años de entrega válidos.")
     else:
         st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
 
