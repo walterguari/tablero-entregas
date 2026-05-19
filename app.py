@@ -40,10 +40,10 @@ GID_USADOS = "183300599"
 URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?format=csv&gid={GID_USADOS}"
 
 @st.cache_data(ttl=60)
-def load_data(url):
+def load_data(url, fila_header=0):
     try:
-        # SE AGREGA header=1 PORQUE LOS NOMBRES DE LAS COLUMNAS ESTÁN EN LA SEGUNDA FILA
-        df = pd.read_csv(url, header=1)
+        # SE USA fila_header PARA ADAPTARSE A LAS DIFERENCIAS ENTRE PLANILLAS
+        df = pd.read_csv(url, header=fila_header)
         df.columns = df.columns.str.strip().str.upper()
         
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
@@ -102,8 +102,9 @@ def load_data(url):
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-df_0km = load_data(URL_0KM)
-df_usados = load_data(URL_USADOS)
+# 0KM LEE DESDE LA PRIMERA FILA (0), USADOS LEE DESDE LA SEGUNDA FILA (1)
+df_0km = load_data(URL_0KM, fila_header=0)
+df_usados = load_data(URL_USADOS, fila_header=1)
 
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
@@ -316,21 +317,21 @@ elif opcion == "🛠️ Control Mantenimiento":
         for index, row in df_mant.iterrows():
             if pd.isnull(row["FECHA_ARRIBO_DT"]): continue
             fecha_arribo = row["FECHA_ARRIBO_DT"]
-            motivos_hoy, motivos_semana, motivos_atrasados = [], [], []
+            motivos_hoy, motifs_semana, motifs_atrasados = [], [], []
             for intervalo, columna in cols_control.items():
                 if not columna: continue
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 if estado_celda in ["OK", "N/A", "SI"]: continue
                 if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} días")
-                if inicio_semana <= fecha_vencimiento <= fin_semana: motivos_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
-                if hoy >= fecha_vencimiento: motivos_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
+                if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
+                if hoy >= fecha_vencimiento: motifs_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
             if motivos_hoy:
                 r = row.copy(); r["TAREA"] = ", ".join(motivos_hoy); lista_hoy.append(r)
-            if motivos_semana:
-                r = row.copy(); r["TAREA"] = ", ".join(motivos_semana); lista_semana.append(r)
-            if motivos_atrasados:
-                r = row.copy(); r["TAREA"] = motivos_atrasados[-1]; lista_atrasados.append(r)
+            if motifs_semana:
+                r = row.copy(); r["TAREA"] = ", ".join(motifs_semana); lista_semana.append(r)
+            if motifs_atrasados:
+                r = row.copy(); r["TAREA"] = motifs_atrasados[-1]; lista_atrasados.append(r)
         
         c1, c2, c3 = st.columns(3)
         t_hoy = "primary" if st.session_state.filtro_mantenimiento == 'hoy' else "secondary"
