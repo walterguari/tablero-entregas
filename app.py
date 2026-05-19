@@ -74,7 +74,7 @@ def load_data(url):
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: 
             df["TELEFONO_CLEAN"] = df[col_tel]
-        col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
+        col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c or "ELECTRONICO" in c), None)
         if col_mail: 
             df["CORREO_CLEAN"] = df[col_mail]
 
@@ -97,7 +97,6 @@ if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mante
 # ==========================================
 # BARRA LATERAL (LOGO Y NAVEGACIÓN)
 # ==========================================
-# Saneamiento de carga del logo
 logo_paths = ["logo.png", "logo.png.png", "logo.jpg"]
 for path in logo_paths:
     if os.path.exists(path):
@@ -116,7 +115,7 @@ opcion = st.sidebar.radio("Ir a:", [
 st.sidebar.markdown("---")
 
 # FUNCIÓN DE AGENDA OPTIMIZADA
-def render_agenda(df_target, session_key_vista, titulo_seccion):
+def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
         años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
@@ -175,26 +174,56 @@ def render_agenda(df_target, session_key_vista, titulo_seccion):
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                # --- CONFIGURACIÓN DE COLUMNAS SEGÚN EL TIPO DE ORIGEN ---
+                if es_usados:
+                    # Columnas específicas solicitadas para Usados (mapeadas a mayúsculas)
+                    cols_agenda = [
+                        "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)", 
+                        "HORA", 
+                        "CLIENTE", 
+                        "ESTADO DEL TRAMITE", 
+                        "TIPO DE UNIDAD", 
+                        "ESTADO DE UNIDAD", 
+                        "MARCA", 
+                        "MODELO", 
+                        "DOMINIO", 
+                        "TELEFONO", 
+                        "CORREO ELECTRONICO", 
+                        "VENDEDOR (BOLETO)"
+                    ]
+                    col_sort_hora = "HORA"
+                else:
+                    # Estructura clásica para 0KM
+                    col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                    cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
+                    if col_admin: 
+                        cols_agenda.append(col_admin)
+                    cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                    col_sort_hora = "HS DE ENTREGA AL CLIENTE"
                 
-                cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
-                if col_admin: 
-                    cols_agenda.append(col_admin)
-                
-                cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 
-                # Garantizar que las columnas duplicadas remanentes en el subset no rompan st.dataframe
+                # Saneamiento anti-duplicados
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                 
+                # Determinar criterio de ordenación secundaria por hora si existe
+                sort_cols = ["FECHA_ENTREGA_DT"]
+                if col_sort_hora in df_render.columns:
+                    sort_cols.append(col_sort_hora)
+                
+                # Configuración de visualización limpia de fechas
+                col_config_custom = {
+                    "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY")
+                }
+                # Ocultar visualmente la columna interna duplicada si convive con el string largo original
+                if "FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)" in df_render.columns:
+                    col_config_custom["FECHA CONFIRMADA DE ENTREGA (CONTACTO CON EL CLIENTE)"] = st.column_config.TextColumn("Fecha original")
+
                 st.dataframe(
-                    df_render.sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]), 
+                    df_render.sort_values(sort_cols), 
                     use_container_width=True, 
                     hide_index=True, 
-                    column_config={
-                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                        col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
-                    }
+                    column_config=col_config_custom
                 )
             else:
                 if st.session_state[session_key_vista] != 'mes': 
@@ -208,10 +237,10 @@ def render_agenda(df_target, session_key_vista, titulo_seccion):
 # RENDERIZADO DE LAS PESTAÑAS
 # ==========================================
 if opcion == "📅 Planificación Entregas 0KM":
-    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM")
+    render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usados=False)
 
 elif opcion == "🚗 Agenda de Usados":
-    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados")
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", es_usados=True)
 
 elif opcion == "📦 Control de Stock 0KM":
     st.title("📦 Tablero de Stock 0KM")
@@ -477,7 +506,6 @@ elif opcion == "📄 Estado Documentación 0KM":
         cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         
-        # Eliminar duplicados de nombres de columnas antes del render de documentación
         df_doc_render = df_doc[cols_reales].loc[:, ~df_doc[cols_reales].columns.duplicated()]
         
         if not df_doc_render.empty:
