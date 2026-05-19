@@ -30,59 +30,70 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CARGA DE DATOS ---
-SHEET_ID = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
-GID = "1504374770"
-URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+# --- CREDENCIALES GOOGLE SHEETS ---
+# Planilla 0KM
+SHEET_ID_0KM = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
+GID_0KM = "1504374770"
+URL_0KM = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_0KM}/export?format=csv&gid={GID_0KM}"
+
+# Planilla Usados (Nueva)
+SHEET_ID_USADOS = "1Kxy6d8xRR0WlypTVZygL1KHbc_i1MlNnd_JcEhCbc3c"
+GID_USADOS = "183300599"
+URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?format=csv&gid={GID_USADOS}"
 
 @st.cache_data(ttl=60)
-def load_data():
+def load_data(url):
     try:
-        df = pd.read_csv(URL)
+        df = pd.read_csv(url)
         df.columns = df.columns.str.strip().str.upper()
         
-        # PROCESAMIENTO FECHAS
+        # PROCESAMIENTO GENERAL DE FECHAS DE ENTREGA
         col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
         if not col_entrega: 
-            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
+            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c and "ARRIBO" not in c and "PAPELES" not in c), None)    
+        
         if col_entrega:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
             df["MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month_name()
             df["N_MES_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.month
         
+        # Procesamiento fecha arribo
         col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
         if col_arribo:
             df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
             df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
 
-        col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
-        if col_fact in df.columns:
+        # Otras columnas administrativas comunes
+        col_fact = next((c for c in df.columns if "FACTURACION" in c), None)
+        if col_fact: 
             df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
 
-        col_papeles = "FECHA DISPONIBILIDAD PAPELES"
-        if col_papeles in df.columns:
+        col_papeles = next((c for c in df.columns if "PAPELES" in c or "DOCUMENTACION" in c), None)
+        if col_papeles: 
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
-        if col_tel: 
-            df["TELEFONO_CLEAN"] = df[col_tel]
+        if col_tel: df["TELEFONO_CLEAN"] = df[col_tel]
+        
         col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
-        if col_mail: 
-            df["CORREO_CLEAN"] = df[col_mail]
+        if col_mail: df["CORREO_CLEAN"] = df[col_mail]
 
         return df
     except Exception as e:
-        st.error(f"Error cargando datos: {e}")
+        st.error(f"Error cargando datos desde la URL: {e}")
         return pd.DataFrame()
 
-df = load_data()
+# Carga independiente para evitar mezclas
+df_0km = load_data(URL_0KM)
+df_usados = load_data(URL_USADOS)
 
 # --- MEMORIA DE ESTADO ---
 if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
 if 'filtro_estado_admin' not in st.session_state: st.session_state.filtro_estado_admin = None
 if 'filtro_doc_stock' not in st.session_state: st.session_state.filtro_doc_stock = None 
 if 'modo_vista_agenda' not in st.session_state: st.session_state.modo_vista_agenda = 'mes'
+if 'modo_vista_usados' not in st.session_state: st.session_state.modo_vista_usados = 'mes'
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
 
 # ==========================================
@@ -97,50 +108,50 @@ elif os.path.exists("logo.jpg"):
 
 st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
-    "📅 Planificación Entregas", 
-    "📦 Control de Stock", 
+    "📅 Planificación Entregas 0KM", 
+    "🚗 Agenda de Usados",
+    "📦 Control de Stock 0KM", 
     "🛠️ Control Mantenimiento", 
-    "📄 Estado Documentación", 
+    "📄 Estado Documentación 0KM", 
     "🗺️ Plano del Salón"
 ])
 st.sidebar.markdown("---")
 
-# ==========================================
-# 1. PLANIFICACIÓN ENTREGAS
-# ==========================================
-if opcion == "📅 Planificación Entregas":
-    st.title("📅 Agenda de Entregas")
-    if not df.empty and "FECHA_ENTREGA_DT" in df.columns:
-        años = sorted(df["AÑO_ENTREGA"].dropna().unique().astype(int))
+
+# Lógica de renderizado reutilizable para agendas
+def render_agenda(df_target, session_key_vista, titulo_seccion):
+    st.title(titulo_seccion)
+    if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
+        años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
         if años:
-            año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1)
-            df_año = df[df["AÑO_ENTREGA"] == año_sel]
+            año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"select_año_{session_key_vista}")
+            df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
             
             hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
             programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
             
             c1, c2, c3 = st.columns(3)
-            type_ent = "primary" if st.session_state.modo_vista_agenda == 'entregados' else "secondary"
-            type_prog = "primary" if st.session_state.modo_vista_agenda == 'programados' else "secondary"
-            type_mes = "primary" if st.session_state.modo_vista_agenda == 'mes' else "secondary"
+            type_ent = "primary" if st.session_state[session_key_vista] == 'entregados' else "secondary"
+            type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
+            type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
 
-            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent):
-                st.session_state.modo_vista_agenda = 'entregados'
-            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog):
-                st.session_state.modo_vista_agenda = 'programados'
-            if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes):
-                st.session_state.modo_vista_agenda = 'mes'
+            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'entregados'
+            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'programados'
+            if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
+                st.session_state[session_key_vista] = 'mes'
             st.divider()
 
             df_final = pd.DataFrame()
             titulo = ""
             
-            if st.session_state.modo_vista_agenda == 'entregados':
+            if st.session_state[session_key_vista] == 'entregados':
                 st.info(f"Historial de entregas {año_sel}.")
                 df_final = entregados
                 titulo = f"Historial Entregado - {año_sel}"
-            elif st.session_state.modo_vista_agenda == 'programados':
+            elif st.session_state[session_key_vista] == 'programados':
                 st.info(f"Próximas entregas a partir de hoy.")
                 df_final = programados
                 titulo = f"Agenda Pendiente - {año_sel}"
@@ -150,11 +161,11 @@ if opcion == "📅 Planificación Entregas":
                 meses_nums = df_año["N_MES_ENTREGA"].unique()
                 mapa_meses = dict(zip(meses_nombres, meses_nums))
                 if mapa_meses:
-                    mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]))
+                    mes_sel = st.sidebar.selectbox("Mes", options=sorted(mapa_meses.keys(), key=lambda x: mapa_meses[x]), key=f"select_mes_{session_key_vista}")
                     df_mes = df_año[df_año["MES_ENTREGA"] == mes_sel].copy()
-                    col_filtro, col_vacio = st.columns([1, 3])
+                    col_filtro, _ = st.columns([1, 3])
                     with col_filtro:
-                        dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max())
+                        dia_filtro = st.date_input("📅 Filtrar día", value=None, min_value=df_mes["FECHA_ENTREGA_DT"].min(), max_value=df_mes["FECHA_ENTREGA_DT"].max(), key=f"date_{session_key_vista}")
                     if dia_filtro:
                         df_final = df_mes[df_mes["FECHA_ENTREGA_DT"].dt.date == dia_filtro]
                         titulo = f"Cronograma del {dia_filtro.strftime('%d/%m/%Y')} ({len(df_final)})"
@@ -167,17 +178,22 @@ if opcion == "📅 Planificación Entregas":
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                col_admin = next((c for c in df.columns if "ESTADO" in c and "ADMIN" in c), None)
+                col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
+                col_hora = next((c for c in df_target.columns if "HORA" in c or "HS" in c), "HS DE ENTREGA AL CLIENTE")
+                col_cliente = next((c for c in df_target.columns if "CLIENTE" in c), "CLIENTE")
+                col_vin = next((c for c in df_target.columns if "VIN" in c or "DOMINIO" in c or "PATENTE" in c), "VIN")
                 
-                cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
+                cols_agenda = ["FECHA_ENTREGA_DT", col_hora, col_cliente]
                 if col_admin: 
                     cols_agenda.append(col_admin)
                 
-                cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                cols_agenda.extend(["MARCA", "MODELO", col_vin, "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 
+                sort_cols = [c for c in ["FECHA_ENTREGA_DT", col_hora] if c in df_final.columns]
+                
                 st.dataframe(
-                    df_final[cols_reales].sort_values(["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE"]), 
+                    df_final[cols_reales].sort_values(sort_cols), 
                     use_container_width=True, 
                     hide_index=True, 
                     column_config={
@@ -186,19 +202,27 @@ if opcion == "📅 Planificación Entregas":
                     }
                 )
             else:
-                if st.session_state.modo_vista_agenda != 'mes': 
+                if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
         else:
-            st.warning("No se encontraron años en los datos.")
+            st.warning("No se encontraron años en los datos de esta agenda.")
     else:
-        st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
+        st.error("No se pudo estructurar el formato de fecha de entrega o los datos están vacíos.")
+
 
 # ==========================================
-# 2. CONTROL DE STOCK
+# SECCIONES DE NAVEGACIÓN
 # ==========================================
-elif opcion == "📦 Control de Stock":
-    st.title("📦 Tablero de Stock")
-    df_stock = df.copy()
+
+if opcion == "📅 Planificación Entregas 0KM":
+    render_agenda(df_0km, 'modo_vista_agenda', "📅 Agenda de Entregas 0KM")
+
+elif opcion == "🚗 Agenda de Usados":
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados")
+
+elif opcion == "📦 Control de Stock 0KM":
+    st.title("📦 Tablero de Stock 0KM")
+    df_stock = df_0km.copy()
     if not df_stock.empty:
         st.sidebar.header("Filtros Stock")
         if "AÑO_ARRIBO" in df_stock.columns:
@@ -239,29 +263,26 @@ elif opcion == "📦 Control de Stock":
         cols_reales = [c for c in cols_stock if c in df_mostrar.columns]
         st.dataframe(df_mostrar[cols_reales], use_container_width=True, hide_index=True)
 
-# ==========================================
-# 3. CONTROL MANTENIMIENTO
-# ==========================================
 elif opcion == "🛠️ Control Mantenimiento":
     st.title("🛠️ Planificación de Taller")
-    if not df.empty and "FECHA_ARRIBO_DT" in df.columns:
+    if not df_0km.empty and "FECHA_ARRIBO_DT" in df_0km.columns:
         st.sidebar.header("Filtros")
-        marcas = st.sidebar.multiselect("Filtrar Marca", df["MARCA"].unique())
+        marcas = st.sidebar.multiselect("Filtrar Marca", df_0km["MARCA"].unique())
         hoy = pd.Timestamp.now().normalize()
         inicio_semana = hoy - timedelta(days=hoy.weekday())
         fin_semana = inicio_semana + timedelta(days=6)
-        df_mant = df.copy()
+        df_mant = df_0km.copy()
         if "ESTADO" in df_mant.columns:
             df_mant = df_mant[df_mant["ESTADO"].astype(str).str.strip().str.upper() != "ENTREGADO"]
         if marcas:
             df_mant = df_mant[df_mant["MARCA"].isin(marcas)]
         cols_control = {
-            30: next((c for c in df.columns if "30" in c and "REALIZADO" in c), None),
-            60: next((c for c in df.columns if "60" in c and "REALIZADO" in c), None),
-            90: next((c for c in df.columns if "90" in c and "REALIZADO" in c), None),
-            180: next((c for c in df.columns if "180" in c and "REALIZADO" in c), None),
-            360: next((c for c in df.columns if "360" in c and "REALIZADO" in c), None),
-            540: next((c for c in df.columns if "540" in c and "REALIZADO" in c), None),
+            30: next((c for c in df_0km.columns if "30" in c and "REALIZADO" in c), None),
+            60: next((c for c in df_0km.columns if "60" in c and "REALIZADO" in c), None),
+            90: next((c for c in df_0km.columns if "90" in c and "REALIZADO" in c), None),
+            180: next((c for c in df_0km.columns if "180" in c and "REALIZADO" in c), None),
+            360: next((c for c in df_0km.columns if "360" in c and "REALIZADO" in c), None),
+            540: next((c for c in df_0km.columns if "540" in c and "REALIZADO" in c), None),
         }
         lista_hoy, lista_semana, lista_atrasados = [], [], []
         for index, row in df_mant.iterrows():
@@ -312,21 +333,15 @@ elif opcion == "🛠️ Control Mantenimiento":
     else:
         st.warning("No se encontraron datos.")
 
-# ==========================================
-# 4. ESTADO DOCUMENTACIÓN
-# ==========================================
-elif opcion == "📄 Estado Documentación":
-    st.title("📄 Estado de Documentación")
-    
-    df_doc = df.copy()
+elif opcion == "📄 Estado Documentación 0KM":
+    st.title("📄 Estado de Documentación 0KM")
+    df_doc = df_0km.copy()
     
     if not df_doc.empty:
-        # --- FILTROS LATERALES ---
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
-            if marca_filter: 
-                df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
+            if marca_filter: df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
 
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
         if search:
@@ -335,18 +350,12 @@ elif opcion == "📄 Estado Documentación":
         
         st.markdown("---")
 
-        # DETECTAR COLUMNAS AUTOMÁTICAMENTE
         col_target_admin = None
         if "ESTADO DE ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
         elif "ESTADO ADMINISTRATIVO" in df_doc.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
-        # ----------------------------------------------------
-        # NIVEL 1: ESTADO ADMINISTRATIVO
-        # ----------------------------------------------------
         st.subheader("📂 1. Estado Administrativo")
-        
-        # Para evitar colisiones en los botones dinámicos, calculamos sobre el df base filtrado por texto/marca
         df_base_botones = df_doc.copy()
 
         estados_clave = [
@@ -403,7 +412,6 @@ elif opcion == "📄 Estado Documentación":
                         "count": cant
                     })
 
-        # Renderizar Botones Admin
         if admin_buttons:
             cols_a = st.columns(3)
             for idx, btn_data in enumerate(admin_buttons):
@@ -415,26 +423,15 @@ elif opcion == "📄 Estado Documentación":
                         st.session_state.filtro_estado_admin = btn_data["filter_val"]
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ----------------------------------------------------
-        # NIVEL 2: ESTADO FÍSICO (STOCK)
-        # ----------------------------------------------------
         st.subheader("📦 2. Estado Físico (Stock)")
         
-        # Filtramos primero por lo administrativo para saber los estados físicos reales resultantes
         df_para_stock_botones = df_doc.copy()
         if st.session_state.filtro_estado_admin and col_target_admin:
             val_a = st.session_state.filtro_estado_admin
             if val_a == "SPECIAL_OK_STOCK":
-                df_para_stock_botones = df_para_stock_botones[
-                    df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & 
-                    (df_para_stock_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO")
-                ]
+                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
             elif val_a == "SPECIAL_OK_ENTREGADO":
-                df_para_stock_botones = df_para_stock_botones[
-                    df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & 
-                    (df_para_stock_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO")
-                ]
+                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_para_stock_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
             else:
                 df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains(val_a, case=False, na=False)]
 
@@ -452,22 +449,13 @@ elif opcion == "📄 Estado Documentación":
             for u in unique_in_db:
                 if u not in all_stock_states: all_stock_states.append(u)
 
-            iconos_stock = {
-                "EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", 
-                "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", 
-                "RESERVADO": "🔖", "DISPONIBLE": "🟢"
-            }
+            iconos_stock = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "ENTREGADO": "✅", "RESERVADO": "🔖", "DISPONIBLE": "🟢"}
 
             for estado in all_stock_states:
                 cant = len(df_para_stock_botones[df_para_stock_botones["ESTADO"].astype(str).str.upper() == estado])
                 if cant > 0:
                     icon = iconos_stock.get(estado, "🚗")
-                    stock_buttons.append({
-                        "label": f"{icon} {estado.title()} ({cant})",
-                        "key": f"btn_st_doc_{estado}",
-                        "filter_val": estado,
-                        "count": cant
-                    })
+                    stock_buttons.append({"label": f"{icon} {estado.title()} ({cant})", "key": f"btn_st_doc_{estado}", "filter_val": estado, "count": cant})
 
         if stock_buttons:
             cols_s = st.columns(4)
@@ -479,28 +467,20 @@ elif opcion == "📄 Estado Documentación":
                     if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
                         st.session_state.filtro_doc_stock = btn_data["filter_val"]
 
-        # --- APLICACIÓN CRUZADA Y FINAL DE FILTROS ---
         st.divider()
-        
-        # 1. Filtro Administrativo
         if st.session_state.filtro_estado_admin and col_target_admin:
             val_admin = st.session_state.filtro_estado_admin
             if val_admin == "SPECIAL_OK_STOCK":
                 df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
-                st.info("Filtro: **Ok Documentación (Unidades en Stock/Pendientes)**")
             elif val_admin == "SPECIAL_OK_ENTREGADO":
                 df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
-                st.info("Filtro: **Ok Documentación (Unidades ya Entregadas)**")
             else:
                 df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(val_admin, case=False, na=False)]
 
-        # 2. Filtro Físico (Stock)
         if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
             df_doc = df_doc[df_doc["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
 
-        # TABLA RESULTANTE
         st.markdown(f"### 🔍 Resultados: {len(df_doc)} vehículos")
-        
         cols_solicitadas = ["FECHA DE FACTURACION DE LA UNIDAD", "VIN", "CLIENTE", "MARCA", "ESTADO DE ADMINISTRATIVO", "ESTADO ADMINISTRATIVO", "MODELO", "UBICACION", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD", "ACCESORIOS", "FECHA QUE EL GESTOR RETIRA DOC", "FECHA PREVISTA DE ENTREGA", "FECHA DISPONIBILIDAD PAPELES"]
         cols_reales = [c for c in cols_solicitadas if c in df_doc.columns]
         
@@ -509,9 +489,6 @@ elif opcion == "📄 Estado Documentación":
         else:
             st.warning("No hay vehículos que cumplan con AMBOS criterios.")
 
-# ==========================================
-# 5. PLANO SALÓN
-# ==========================================
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
     tab_peugeot, tab_citroen = st.tabs(["🦁 Peugeot", "🔴 Citroën"])
