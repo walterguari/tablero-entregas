@@ -42,7 +42,8 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 @st.cache_data(ttl=60)
 def load_data(url):
     try:
-        df = pd.read_csv(url)
+        # SE AGREGA header=1 PORQUE LOS NOMBRES DE LAS COLUMNAS ESTÁN EN LA SEGUNDA FILA
+        df = pd.read_csv(url, header=1)
         df.columns = df.columns.str.strip().str.upper()
         
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
