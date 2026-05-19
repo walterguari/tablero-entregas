@@ -43,7 +43,8 @@ def load_data():
         
         # PROCESAMIENTO FECHAS
         col_entrega = next((c for c in df.columns if "CONFIRMACI" in c and "ENTREGA" in c), None)
-        if not col_entrega: col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
+        if not col_entrega: 
+            col_entrega = next((c for c in df.columns if "FECHA" in c and "FACT" not in c), None)    
         if col_entrega:
             df["FECHA_ENTREGA_DT"] = pd.to_datetime(df[col_entrega], dayfirst=True, errors='coerce')
             df["AÑO_ENTREGA"] = df["FECHA_ENTREGA_DT"].dt.year
@@ -64,9 +65,11 @@ def load_data():
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
-        if col_tel: df["TELEFONO_CLEAN"] = df[col_tel]
+        if col_tel: 
+            df["TELEFONO_CLEAN"] = df[col_tel]
         col_mail = next((c for c in df.columns if "CORREO" in c or "MAIL" in c), None)
-        if col_mail: df["CORREO_CLEAN"] = df[col_mail]
+        if col_mail: 
+            df["CORREO_CLEAN"] = df[col_mail]
 
         return df
     except Exception as e:
@@ -91,8 +94,6 @@ elif os.path.exists("logo.png"):
     st.sidebar.image("logo.png", use_container_width=True)
 elif os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
-else:
-    pass 
 
 st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
@@ -166,15 +167,13 @@ if opcion == "📅 Planificación Entregas":
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
                 
-                # --- DETECCIÓN Y VISUALIZACIÓN DE COLUMNA ADMIN ---
                 col_admin = next((c for c in df.columns if "ESTADO" in c and "ADMIN" in c), None)
                 
                 cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
-                if col_admin:
+                if col_admin: 
                     cols_agenda.append(col_admin)
                 
                 cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
-                
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 
                 st.dataframe(
@@ -187,7 +186,8 @@ if opcion == "📅 Planificación Entregas":
                     }
                 )
             else:
-                if st.session_state.modo_vista_agenda != 'mes': st.info("No hay vehículos aquí.")
+                if st.session_state.modo_vista_agenda != 'mes': 
+                    st.info("No hay vehículos aquí.")
         else:
             st.warning("No se encontraron años en los datos.")
     else:
@@ -325,7 +325,8 @@ elif opcion == "📄 Estado Documentación":
         st.sidebar.header("Filtros Documentación")
         if "MARCA" in df_doc.columns:
             marca_filter = st.sidebar.multiselect("Filtrar Marca", df_doc["MARCA"].unique())
-            if marca_filter: df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
+            if marca_filter: 
+                df_doc = df_doc[df_doc["MARCA"].isin(marca_filter)]
 
         search = st.text_input("🔎 Buscar por VIN o CLIENTE", placeholder="Escribe para buscar...").upper()
         if search:
@@ -341,22 +342,18 @@ elif opcion == "📄 Estado Documentación":
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_doc.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
         # ----------------------------------------------------
-        # NIVEL 1: ESTADO ADMINISTRATIVO (AHORA ARRIBA)
+        # NIVEL 1: ESTADO ADMINISTRATIVO
         # ----------------------------------------------------
         st.subheader("📂 1. Estado Administrativo")
         
-        # Preparar datos para contar (respetando filtro de stock si existe)
-        df_for_admin_counts = df_doc.copy()
-        if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
-             df_for_admin_counts = df_for_admin_counts[df_for_admin_counts["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
+        # Para evitar colisiones en los botones dinámicos, calculamos sobre el df base filtrado por texto/marca
+        df_base_botones = df_doc.copy()
 
-        # Lista de estados a buscar (QUITAMOS "Ok documentación" para hacerlo manual)
         estados_clave = [
             ("Atopatentado sin cliente", "⚫", "Atopatentado sin"),
             ("Autopatentado firma 08", "✍️", "firma"),
             ("En caso legales", "⚖️", "legales"),
             ("No retirará la unidad", "🚫", "retirará"),
-            # "Ok documentación" -> LO QUITAMOS DE AQUÍ PARA HACERLO PERSONALIZADO
             ("Entrega al gestor", "📂", "gestor"),
             ("Entrega al Reventa", "🤝", "Reventa"),
             ("Se envía a Salta", "🚚", "Salta"),
@@ -364,47 +361,40 @@ elif opcion == "📄 Estado Documentación":
         ]
 
         admin_buttons = []
-        
-        # 1. Botón Reset (Todos)
         admin_buttons.append({
-            "label": f"📋 Ver Todos ({len(df_for_admin_counts)})",
+            "label": f"📋 Ver Todos ({len(df_base_botones)})",
             "key": "btn_doc_reset_admin",
             "filter_val": None,
-            "count": len(df_for_admin_counts)
+            "count": len(df_base_botones)
         })
 
         if col_target_admin:
-            # 2. Lógica Especial: DIVIDIR OK DOCUMENTACIÓN
-            # A) Ok Doc + NO Entregado (En Stock)
-            mask_ok = df_for_admin_counts[col_target_admin].astype(str).str.contains("Ok doc", case=False, regex=False, na=False)
-            if "ESTADO" in df_for_admin_counts.columns:
-                mask_no_entregado = df_for_admin_counts["ESTADO"].astype(str).str.upper() != "ENTREGADO"
-                mask_entregado = df_for_admin_counts["ESTADO"].astype(str).str.upper() == "ENTREGADO"
+            mask_ok = df_base_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
+            if "ESTADO" in df_base_botones.columns:
+                mask_no_entregado = df_base_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO"
+                mask_entregado = df_base_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO"
                 
-                cant_ok_stock = len(df_for_admin_counts[mask_ok & mask_no_entregado])
-                cant_ok_entregados = len(df_for_admin_counts[mask_ok & mask_entregado])
+                cant_ok_stock = len(df_base_botones[mask_ok & mask_no_entregado])
+                cant_ok_entregados = len(df_base_botones[mask_ok & mask_entregado])
 
-                # Agregamos Botón Ok Doc (Stock)
                 if cant_ok_stock > 0:
                     admin_buttons.append({
                         "label": f"✅ Ok Doc (En Stock) ({cant_ok_stock})",
                         "key": "btn_est_ok_stock",
-                        "filter_val": "SPECIAL_OK_STOCK", # Valor especial para filtrar luego
+                        "filter_val": "SPECIAL_OK_STOCK",
                         "count": cant_ok_stock
                     })
                 
-                # Agregamos Botón Ok Doc (Entregados)
                 if cant_ok_entregados > 0:
                     admin_buttons.append({
                         "label": f"✅📜 Ok Doc (Entregados) ({cant_ok_entregados})",
                         "key": "btn_est_ok_entregado",
-                        "filter_val": "SPECIAL_OK_ENTREGADO", # Valor especial
+                        "filter_val": "SPECIAL_OK_ENTREGADO",
                         "count": cant_ok_entregados
                     })
 
-            # 3. Lógica Estándar (Resto de estados)
             for label_btn, icono, keyword in estados_clave:
-                cant = len(df_for_admin_counts[df_for_admin_counts[col_target_admin].astype(str).str.contains(keyword, case=False, regex=False, na=False)])
+                cant = len(df_base_botones[df_base_botones[col_target_admin].astype(str).str.contains(keyword, case=False, na=False)])
                 if cant > 0: 
                     admin_buttons.append({
                         "label": f"{icono} {label_btn} ({cant})",
@@ -427,34 +417,33 @@ elif opcion == "📄 Estado Documentación":
         st.markdown("<br>", unsafe_allow_html=True)
 
         # ----------------------------------------------------
-        # NIVEL 2: ESTADO FÍSICO (AHORA ABAJO)
+        # NIVEL 2: ESTADO FÍSICO (STOCK)
         # ----------------------------------------------------
         st.subheader("📦 2. Estado Físico (Stock)")
         
-        # Preparar datos para contar (respetando filtro de admin activo)
-        df_for_stock_counts = df_doc.copy()
-
+        # Filtramos primero por lo administrativo para saber los estados físicos reales resultantes
+        df_para_stock_botones = df_doc.copy()
         if st.session_state.filtro_estado_admin and col_target_admin:
-            # APLICAMOS LA MISMA LÓGICA DE FILTRO QUE USAREMOS AL FINAL
-            val_admin = st.session_state.filtro_estado_admin
-            if val_admin == "SPECIAL_OK_STOCK":
-                mask1 = df_for_stock_counts[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-                mask2 = df_for_stock_counts["ESTADO"].astype(str).str.upper() != "ENTREGADO"
-                df_for_stock_counts = df_for_stock_counts[mask1 & mask2]
-            elif val_admin == "SPECIAL_OK_ENTREGADO":
-                mask1 = df_for_stock_counts[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-                mask2 = df_for_stock_counts["ESTADO"].astype(str).str.upper() == "ENTREGADO"
-                df_for_stock_counts = df_for_stock_counts[mask1 & mask2]
+            val_a = st.session_state.filtro_estado_admin
+            if val_a == "SPECIAL_OK_STOCK":
+                df_para_stock_botones = df_para_stock_botones[
+                    df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & 
+                    (df_para_stock_botones["ESTADO"].astype(str).str.upper() != "ENTREGADO")
+                ]
+            elif val_a == "SPECIAL_OK_ENTREGADO":
+                df_para_stock_botones = df_para_stock_botones[
+                    df_para_stock_botones[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & 
+                    (df_para_stock_botones["ESTADO"].astype(str).str.upper() == "ENTREGADO")
+                ]
             else:
-                # Filtro estándar contains
-                df_for_stock_counts = df_for_stock_counts[df_for_stock_counts[col_target_admin].astype(str).str.contains(val_admin, case=False, regex=False, na=False)]
+                df_para_stock_botones = df_para_stock_botones[df_para_stock_botones[col_target_admin].astype(str).str.contains(val_a, case=False, na=False)]
 
         stock_buttons = []
         stock_buttons.append({
-            "label": f"♾️ Cualquiera ({len(df_for_stock_counts)})",
+            "label": f"♾️ Cualquiera ({len(df_para_stock_botones)})",
             "key": "btn_stock_reset_doc",
             "filter_val": None,
-            "count": len(df_for_stock_counts)
+            "count": len(df_para_stock_botones)
         })
 
         if "ESTADO" in df_doc.columns:
@@ -470,7 +459,7 @@ elif opcion == "📄 Estado Documentación":
             }
 
             for estado in all_stock_states:
-                cant = len(df_for_stock_counts[df_for_stock_counts["ESTADO"].astype(str).str.upper() == estado])
+                cant = len(df_para_stock_botones[df_para_stock_botones["ESTADO"].astype(str).str.upper() == estado])
                 if cant > 0:
                     icon = iconos_stock.get(estado, "🚗")
                     stock_buttons.append({
@@ -485,41 +474,27 @@ elif opcion == "📄 Estado Documentación":
             for idx, btn_data in enumerate(stock_buttons):
                 col_to_use = cols_s[idx % 4]
                 with col_to_use:
-                    is_active = False
-                    if st.session_state.filtro_doc_stock is None and btn_data["filter_val"] is None: is_active = True
-                    elif st.session_state.filtro_doc_stock and btn_data["filter_val"]:
-                        if str(st.session_state.filtro_doc_stock).upper() == str(btn_data["filter_val"]).upper(): is_active = True
-                    
+                    is_active = (st.session_state.filtro_doc_stock == btn_data["filter_val"])
                     btn_type = "primary" if is_active else "secondary"
                     if st.button(btn_data["label"], use_container_width=True, key=btn_data["key"], type=btn_type):
                         st.session_state.filtro_doc_stock = btn_data["filter_val"]
 
-        # --- APLICACIÓN FINAL DE FILTROS A LA TABLA ---
+        # --- APLICACIÓN CRUZADA Y FINAL DE FILTROS ---
         st.divider()
         
-        # 1. Aplicar Filtro Administrativo (CON LÓGICA ESPECIAL)
+        # 1. Filtro Administrativo
         if st.session_state.filtro_estado_admin and col_target_admin:
             val_admin = st.session_state.filtro_estado_admin
-            
             if val_admin == "SPECIAL_OK_STOCK":
-                # Filtro complejo: Tiene "Ok doc" Y NO es entregado
-                mask1 = df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-                mask2 = df_doc["ESTADO"].astype(str).str.upper() != "ENTREGADO"
-                df_doc = df_doc[mask1 & mask2]
+                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() != "ENTREGADO")]
                 st.info("Filtro: **Ok Documentación (Unidades en Stock/Pendientes)**")
-                
             elif val_admin == "SPECIAL_OK_ENTREGADO":
-                # Filtro complejo: Tiene "Ok doc" Y SI es entregado
-                mask1 = df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False)
-                mask2 = df_doc["ESTADO"].astype(str).str.upper() == "ENTREGADO"
-                df_doc = df_doc[mask1 & mask2]
+                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains("Ok doc", case=False, na=False) & (df_doc["ESTADO"].astype(str).str.upper() == "ENTREGADO")]
                 st.info("Filtro: **Ok Documentación (Unidades ya Entregadas)**")
-                
             else:
-                # Filtro simple por palabra clave
-                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(val_admin, case=False, regex=False, na=False)]
+                df_doc = df_doc[df_doc[col_target_admin].astype(str).str.contains(val_admin, case=False, na=False)]
 
-        # 2. Aplicar Filtro Stock
+        # 2. Filtro Físico (Stock)
         if st.session_state.filtro_doc_stock and "ESTADO" in df_doc.columns:
             df_doc = df_doc[df_doc["ESTADO"].astype(str).str.upper() == str(st.session_state.filtro_doc_stock).upper()]
 
