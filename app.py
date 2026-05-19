@@ -251,29 +251,32 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
             
-            # --- GRÁFICO DE BARRAS VERTICALES ABAJO (PARA AMBOS CASOS) ---
+            # --- SECCIÓN GRÁFICO CORREGIDO (CRONOLÓGICO SEGURO) ---
             if not df_año.empty:
                 st.markdown("---")
                 tipo_unidades = "0KM" if not es_usado else "Usados"
                 st.subheader(f"📊 Volumen de Entregas por Mes {tipo_unidades} ({año_sel})")
                 
-                # Traducir los nombres de los meses a español
+                # Lista con el orden cronológico explícito deseado para las etiquetas
+                orden_meses = [
+                    "01-Enero", "02-Febrero", "03-Marzo", "04-Abril", "05-Mayo", "06-Junio",
+                    "07-Julio", "08-Agosto", "09-Septiembre", "10-Octubre", "11-Noviembre", "12-Diciembre"
+                ]
                 meses_es = {
-                    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+                    1: "01-Enero", 2: "02-Febrero", 3: "03-Marzo", 4: "04-Abril", 5: "05-Mayo", 6: "06-Junio",
+                    7: "07-Julio", 8: "08-Agosto", 9: "09-Septiembre", 10: "10-Octubre", 11: "11-Noviembre", 12: "12-Diciembre"
                 }
                 
-                # Agrupamos por el número de mes para garantizar el orden cronológico
                 df_grafico = df_año.dropna(subset=["N_MES_ENTREGA"]).copy()
                 df_grouped = df_grafico.groupby("N_MES_ENTREGA").size().reset_index(name="Cantidad de Entregas")
-                
-                # Mapeamos los números a nombres legibles en español
                 df_grouped["Mes"] = df_grouped["N_MES_ENTREGA"].map(meses_es)
                 
-                # Configuramos el índice para que sea la etiqueta del eje X
-                df_grouped = df_grouped.set_index("Mes")
+                # Reindexamos usando la lista ordenada para asegurar que aparezcan cronológicamente y no alfabéticamente
+                df_grouped = df_grouped.set_index("Mes").reindex(orden_meses).fillna(0)
                 
-                # Renderizado del gráfico de barras
+                # Ocultamos los meses que tienen 0 entregas si prefieres mantener el gráfico limpio
+                df_grouped = df_grouped[df_grouped["Cantidad de Entregas"] > 0]
+                
                 st.bar_chart(df_grouped["Cantidad de Entregas"], use_container_width=True)
 
         else:
