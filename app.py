@@ -42,7 +42,6 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 @st.cache_data(ttl=60)
 def load_data(url, fila_header=0):
     try:
-        # SE USA fila_header PARA ADAPTARSE A LAS DIFERENCIAS ENTRE PLANILLAS
         df = pd.read_csv(url, header=fila_header)
         df.columns = df.columns.str.strip().str.upper()
         
@@ -90,7 +89,6 @@ def load_data(url, fila_header=0):
         if col_papeles in df.columns:
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
-        # Normalización de Teléfono y Correo para usar nombres genéricos limpios
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: 
             df["TELEFONO_CLEAN"] = df[col_tel]
@@ -104,7 +102,6 @@ def load_data(url, fila_header=0):
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-# 0KM LEE DESDE LA PRIMERA FILA (0), USADOS LEE DESDE LA SEGUNDA FILA (1)
 df_0km = load_data(URL_0KM, fila_header=0)
 df_usados = load_data(URL_USADOS, fila_header=1)
 
@@ -136,7 +133,7 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# FUNCIÓN DE AGENDA OPTIMIZADA (SOPORTA LAS COLUMNAS DETALLADAS PARA AMBAS PLANILLAS)
+# FUNCIÓN DE AGENDA OPTIMIZADA
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
@@ -199,7 +196,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 config_columnas = {}
                 
                 if es_usado:
-                    # ESTRUCTURA ESPECÍFICA SOLICITADA PARA LA PLANILLA DE USADOS
                     cols_agenda = [
                         "FECHA_ENTREGA_DT", 
                         "HORA", 
@@ -215,7 +211,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                         "VENDEDOR (BOLETO)"
                     ]
                     
-                    # Mapeo visual amigable para las cabeceras de la tabla de Usados
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmada de Entrega", format="DD/MM/YYYY"),
                         "HORA": st.column_config.TextColumn("Hora"),
@@ -231,7 +226,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                         "VENDEDOR (BOLETO)": st.column_config.TextColumn("Vendedor (Boleto)")
                     }
                 else:
-                    # ESTRUCTURA ORIGINAL PARA LA PLANILLA DE 0KM
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
                     if col_admin: 
@@ -244,7 +238,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                         col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
                     }
                 
-                # Filtrar solo las columnas que existan realmente en el DataFrame actual
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
                 
@@ -257,6 +250,31 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
             else:
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
+            
+            # --- NUEVO GRÁFICO DE BARRAS VERTICALES ABAJO (EXCLUSIVO PARA USADOS) ---
+            if es_usado and not df_año.empty:
+                st.markdown("---")
+                st.subheader(f"📊 Volumen de Entregas por Mes ({año_sel})")
+                
+                # Diccionario para traducir los nombres de los meses a español
+                meses_es = {
+                    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+                }
+                
+                # Agrupamos por el número de mes para garantizar el orden cronológico estricto
+                df_grafico = df_año.dropna(subset=["N_MES_ENTREGA"]).copy()
+                df_grouped = df_grafico.groupby("N_MES_ENTREGA").size().reset_index(name="Cantidad de Entregas")
+                
+                # Mapeamos los números a nombres legibles en español
+                df_grouped["Mes"] = df_grouped["N_MES_ENTREGA"].map(meses_es)
+                
+                # Configuramos los índices para que Streamlit los interprete como el eje X correcto
+                df_grouped = df_grouped.set_index("Mes")
+                
+                # Renderizado del gráfico de barras vertical básico de Streamlit
+                st.bar_chart(df_grouped["Cantidad de Entregas"], use_container_width=True)
+
         else:
             st.sidebar.warning("No se encontraron años en los datos.")
     else:
