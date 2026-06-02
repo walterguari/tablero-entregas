@@ -284,9 +284,6 @@ elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
     df_raw = df_0km.copy()
     
-    # 🌟 CORRECCIÓN SEGURO: Definición explícita de hoy_dt al inicio del bloque de Stock
-    hoy_dt = pd.Timestamp.now().normalize()
-    
     if not df_raw.empty:
         # --- FILTROS SIDEBAR ---
         st.sidebar.header("Filtros Generales")
@@ -452,7 +449,7 @@ elif opcion == "📦 Control de Stock y Documentación":
 
 
         # ---------------------------------------------------------
-        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (GRÁFICOS DE LÍNEAS FIJOS)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (GRÁFICOS DE LÍNEAS INDEPENDIENTES)
         # ---------------------------------------------------------
         with tab_sub_documental:
             st.markdown("##### Seleccionar segmento operativo a visualizar en la Tabla inferior:")
@@ -469,8 +466,13 @@ elif opcion == "📦 Control de Stock y Documentación":
                     st.session_state.filtro_doc_segmento = '🚨 SIN Fecha de Entrega'
                     
             st.markdown("<br>", unsafe_allow_html=True)
+            hoy_dt = pd.Timestamp.now().normalize()
             
-            # --- PRE-CÁLCULO SEGURO DE DIFERENCIAS PARA EVITAR NAMEERROR ---
+            # 🌟 SOLUCIÓN: Definición de variables nativas arriba para evitar el NameError en las grillas inferiores
+            col_vendedor_native = "VENDEDOR" if "VENDEDOR" in df_stock_real.columns else ("VENDEDOR (BOLETO)" if "VENDEDOR (BOLETO)" in df_stock_real.columns else "VENDEDOR")
+            col_canal_native = "CANAL DE VENTA" if "CANAL DE VENTA" in df_stock_real.columns else "CANAL DE VENTA"
+
+            # Pre-cálculo seguro de las diferencias para las grillas
             df_con_fecha_calc = df_con_fecha.copy()
             if not df_con_fecha_calc.empty:
                 df_con_fecha_calc["DIF_PEDIDO_ENTREGA"] = (df_con_fecha_calc["FECHA_ENTREGA_DT"] - df_con_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
@@ -483,7 +485,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                 df_sin_fecha_calc["DIF_PAPELES_HOY"] = (hoy_dt - df_sin_fecha_calc["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
                 df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"] = df_sin_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"].dt.year
 
-            # RENDERIZADO DE TABLAS (CONDICIONAL ÚNICAMENTE PARA LA GRILLA)
+            # --- ESCENARIO A: 🚀 CON FECHA DE ENTREGA ---
             if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
                 st.markdown(f"##### 📋 Tabla de Control Operativo — `{st.session_state.filtro_doc_segmento}`")
                 if not df_con_fecha_calc.empty:
@@ -491,7 +493,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                     cols_reales_a = [c for c in cols_a_mostrar if c in df_con_fecha_calc.columns]
                     st.dataframe(
                         df_con_fecha_calc[cols_reales_a].sort_values(by="CLIENTE"),
-                        use_container_width=True, hide_index=True,
+                        use_container_width=True,
+                        hide_index=True,
                         column_config={
                             "MARCA": st.column_config.TextColumn("Marca"),
                             "VIN": st.column_config.TextColumn("VIN"),
@@ -504,6 +507,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                     )
                 else:
                     st.info("No hay vehículos con fecha de entrega planificada.")
+                    
+            # --- ESCENARIO B: 🚨 SIN FECHA DE ENTREGA ---
             else:
                 st.markdown(f"##### 📋 Tabla de Alertas y Seguimiento — `{st.session_state.filtro_doc_segmento}`")
                 if not df_sin_fecha_calc.empty:
@@ -511,7 +516,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                     cols_reales_b = [c for c in cols_b_mostrar if c in df_sin_fecha_calc.columns]
                     st.dataframe(
                         df_sin_fecha_calc[cols_reales_b].sort_values(by="DIF_PEDIDO_HOY", ascending=False),
-                        use_container_width=True, hide_index=True,
+                        use_container_width=True,
+                        hide_index=True,
                         column_config={
                             "MARCA": st.column_config.TextColumn("Marca"),
                             "VIN": st.column_config.TextColumn("VIN"),
@@ -524,15 +530,15 @@ elif opcion == "📦 Control de Stock y Documentación":
                         }
                     )
                 else:
-                    st.success("¼ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
+                    st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
 
             # ==============================================================================
-            # 📊 SINOPSIS OPERATIVA: SECCIÓN UNIFICADA Y PERMANENTE DE GRÁFICOS DE LÍNEAS
+            # 📊 SECCIÓN UNIFICADA Y PERMANENTE DE GRÁFICOS DE LÍNEAS (ORDENADOS DE ENE A DIC)
             # ==============================================================================
             st.markdown("---")
             st.markdown("### 📈 Históricos y Tendencias de Tiempos Promedio")
             
-            # Recolectar dinámicamente todos los períodos existentes en las bases
+            # Recolectar todos los años de las planillas
             años_totales = set()
             if not df_con_fecha_calc.empty: años_totales.update(df_con_fecha_calc["AÑO_FILTRO"].dropna().unique().astype(int))
             if not df_sin_fecha_calc.empty: años_totales.update(df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"].dropna().unique().astype(int))
@@ -544,11 +550,11 @@ elif opcion == "📦 Control de Stock y Documentación":
             with col_u1:
                 año_unificado_sel = st.selectbox("📅 Seleccionar Año de Análisis:", opciones_periodo, index=default_idx_unificado, key="sel_año_unificado_graficos")
             
-            # Forzar eje X cronológico limpio de Enero a Diciembre
+            # Forzar índices cronológicos fijos en el Eje X (Evita bloques azules macizos)
             meses_indices = range(1, 13)
             nombres_meses_es = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             
-            # --- PROCESAMIENTO GRÁFICOS 1 Y 2 (CON FECHA) ---
+            # --- FILTRADO Y PROCESAMIENTO CON FECHA ---
             if año_unificado_sel == "Todos los años":
                 df_g_con = df_con_fecha_calc.copy() if not df_con_fecha_calc.empty else pd.DataFrame()
             else:
@@ -564,7 +570,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                 linea1_data = pd.Series(index=nombres_meses_es, dtype=float)
                 linea2_data = pd.Series(index=nombres_meses_es, dtype=float)
 
-            # --- PROCESAMIENTO GRÁFICO 3 (SIN FECHA) ---
+            # --- FILTRADO Y PROCESAMIENTO SIN FECHA ---
             if año_unificado_sel == "Todos los años":
                 df_g_sin = df_sin_fecha_calc.copy() if not df_sin_fecha_calc.empty else pd.DataFrame()
             else:
@@ -577,7 +583,7 @@ elif opcion == "📦 Control de Stock y Documentación":
             else:
                 linea3_data = pd.Series(index=nombres_meses_es, dtype=float)
 
-            # --- DESPLIEGUE PARALELO DE LOS 3 GRÁFICOS DE LÍNEAS ---
+            # --- DESPLIEGUE PARALELO DE LOS 3 GRÁFICOS DE LÍNEAS DE TENDENCIA ---
             g_col1, g_col2, g_col3 = st.columns(3)
             
             with g_col1:
@@ -644,7 +650,7 @@ elif opcion == "🛠️ Control Mantenimiento":
         if c1.button(f"📅 Vence HOY ({len(lista_hoy)})", use_container_width=True, type=t_hoy): st.session_state.filtro_mantenimiento = 'hoy'
         if c2.button(f"📆 Vence Esta Semana ({len(lista_semana)})", use_container_width=True, type=t_sem): st.session_state.filtro_mantenimiento = 'semana'
         if c3.button(f"🚨 Todo Pendiente ({len(lista_atrasados)})", use_container_width=True, type=t_tod): st.session_state.filtro_mantenimiento = 'todos'
-        st.sidebar.markdown("---")
+        st.divider()
         
         df_final = pd.DataFrame()
         if st.session_state.filtro_mantenimiento == 'hoy':
