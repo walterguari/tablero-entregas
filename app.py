@@ -89,7 +89,7 @@ def load_data(url, fila_header=0):
         if col_papeles in df.columns:
             df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
 
-        # NUEVA COLUMNA DE ALERTA: Fecha de Pedido de Preparación
+        # Fecha de Pedido de Preparación
         col_prep = next((c for c in df.columns if "PEDIDO" in c and "PREPARACI" in c), None)
         if col_prep:
             df["FECHA_PREPARACION_DT"] = pd.to_datetime(df[col_prep], dayfirst=True, errors='coerce')
@@ -133,7 +133,7 @@ st.sidebar.title("Navegación")
 opcion = st.sidebar.radio("Ir a:", [
     "📅 Planificación Entregas 0KM", 
     "🚗 Agenda de Usados",
-    "📦 Control de Stock y Documentación",  # Pestaña Unificada
+    "📦 Control de Stock y Documentación",
     "🛠️ Control Mantenimiento", 
     "🗺️ Plano del Salón"
 ])
@@ -255,7 +255,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
             
-            # --- SECCIÓN GRÁFICO CORREGIDO Y CON FILTRO INTERNO ---
+            # --- SECCIÓN GRÁFICO CON FILTRO INTERNO ---
             st.markdown("---")
             tipo_unidades = "0KM" if not es_usado else "Usados"
             
@@ -315,59 +315,71 @@ elif opcion == "🚗 Agenda de Usados":
 elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
     
-    # Clonamos el DataFrame base para trabajar con seguridad
-    df_master = df_0km.copy()
+    # Clonamos el DataFrame original
+    df_raw = df_0km.copy()
     
-    if not df_master.empty:
+    if not df_raw.empty:
         # --- FILTROS SIDEBAR ---
         st.sidebar.header("Filtros Generales")
-        if "MARCA" in df_master.columns:
-            marcas_sel = st.sidebar.multiselect("Filtrar Marca", df_master["MARCA"].unique(), default=df_master["MARCA"].unique())
-            df_master = df_master[df_master["MARCA"].isin(marcas_sel)]
+        if "MARCA" in df_raw.columns:
+            marcas_sel = st.sidebar.multiselect("Filtrar Marca", df_raw["MARCA"].unique(), default=df_raw["MARCA"].unique())
+            df_raw = df_raw[df_raw["MARCA"].isin(marcas_sel)]
             
         search = st.text_input("🔎 BUSCADOR DIRECTO (VIN, CLIENTE o MODELO)", placeholder="Escribe para buscar...").upper()
         if search:
-            mask = df_master.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
-            df_master = df_master[mask]
+            mask = df_raw.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
+            df_raw = df_raw[mask]
 
-        # --- DETERMINACIÓN DE COLUMNAS CLAVE ---
         col_target_admin = None
-        if "ESTADO DE ADMINISTRATIVO" in df_master.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
-        elif "ESTADO ADMINISTRATIVO" in df_master.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
-        elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_master.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
+        if "ESTADO DE ADMINISTRATIVO" in df_raw.columns: col_target_admin = "ESTADO DE ADMINISTRATIVO"
+        elif "ESTADO ADMINISTRATIVO" in df_raw.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
+        elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_raw.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
-        # --- CÁLCULO DE MÉTRICAS / INTELIGENCIA DE AGENDA ---
-        hoy_dt = pd.Timestamp.now().normalize()
+        # =========================================================
+        # REESTRUCTURACIÓN ESTRICTA DE LA LÓGICA DE LAS TARJETAS
+        # =========================================================
         
-        # Clasificación base: Entregados vs En Stock
-        mask_entregado_fisico = df_master["ESTADO"].astype(str).str.strip().str.upper() == "ENTREGADO"
-        df_entregados_hist = df_master[mask_entregado_fisico]
-        df_stock_real = df_master[~mask_entregado_fisico]
-        
-        # Dentro del Stock Real, quién tiene fecha confirmada y quién no
-        mask_con_fecha = df_stock_real["FECHA_ENTREGA_DT"].notna()
-        df_con_fecha = df_stock_real[mask_con_fecha]
-        df_sin_fecha = df_stock_real[~mask_con_fecha]
-        
-        # Alertas de Preparación (Dentro de los que NO tienen fecha asignada)
-        mask_con_pedido_prep = df_sin_fecha["FECHA_PREPARACION_DT"].notna()
-        df_alerta_prep = df_sin_fecha[mask_con_pedido_prep]
-        df_sin_fecha_sin_pedido = df_sin_fecha[~mask_con_pedido_prep]
+        # Estandarizamos y limpiamos la columna ESTADO eliminando los vacíos y espacios
+        df_raw["ESTADO_CLEAN"] = df_raw["ESTADO"].astype(str).str.strip().str.upper()
+        df_base_limpia = df_raw[df_raw["ESTADO"].notna() & (df_raw["ESTADO_CLEAN"] != "NAN") & (df_raw["ESTADO_CLEAN"] != "")]
 
-        # --- BLOQUE 1: KPI CARDS ---
+        # Tarjeta 4: Entregados Históricos (Estrictamente los que dicen ENTREGADO)
+        df_entregados_hist = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] == "ENTREGADO"]
+
+        # Tarjeta 1: Total Stock Real (Con texto válido, pero que NO es entregado)
+        df_stock_real = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
+
+        # Tarjeta 2: Con Fecha de Entrega (Dentro del Stock Real, tienen fecha confirmada asignada)
+        df_con_fecha = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].notna()]
+
+        # Universo base que NO tiene fecha confirmada asignada
+        df_sin_fecha_base = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].isna()]
+
+        # Tarjeta 3: SIN Fecha de Entrega (Tienen cliente asignado O poseen fecha de pedido de preparación, pero sin agenda confirmada)
+        col_cliente = "CLIENTE" if "CLIENTE" in df_sin_fecha_base.columns else None
+        
+        if col_cliente:
+            mask_tiene_cliente = df_sin_fecha_base[col_cliente].notna() & (df_sin_fecha_base[col_cliente].astype(str).str.strip() != "") & (df_sin_fecha_base[col_cliente].astype(str).str.upper() != "NAN")
+            mask_tiene_pedido = df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
+            # Unifica ambas condiciones (Cliente o Pedido de preparación cargado)
+            df_sin_fecha = df_sin_fecha_base[mask_tiene_cliente | mask_tiene_pedido]
+        else:
+            df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()]
+
+        # --- BLOQUE 1: RENDERING KPI CARDS ---
         st.markdown("### 📈 Resumen del Embudo Operativo")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades físicas disponibles excluyendo entregados.")
-        kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que ya poseen una fecha confirmada.")
-        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Vehículos que no tienen agenda de salida.")
-        kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total histórico de unidades despachadas.")
+        kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades vivas cargadas en stock. Excluye vacíos y entregados.")
+        kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que poseen fecha confirmada de entrega.")
+        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales asignados en espera, sin turno asignado.")
+        kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total acumulado histórico de vehículos entregados.")
         
         st.markdown("---")
         
-        # --- BLOQUE 2: FILTRO NIVEL 1 (ESTADO FÍSICO) ---
+        # --- BLOQUE 2: FILTRO FÍSICO (NIVEL 1) ---
         st.markdown("#### 🏢 Nivel 1: Filtrar por Estado de Unidad (Físico)")
         if "ESTADO" in df_stock_real.columns:
-            conteo_fisico = df_stock_real["ESTADO"].value_counts()
+            conteo_fisico = df_stock_real["ESTADO_CLEAN"].value_counts()
             iconos_stock = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "RESERVADO": "🔖", "DISPONIBLE": "🟢"}
             
             cols_f = st.columns(len(conteo_fisico) + 1)
@@ -377,21 +389,20 @@ elif opcion == "📦 Control de Stock y Documentación":
                     st.session_state.filtro_estado_stock = None
                     
             for idx, (est, cant) in enumerate(conteo_fisico.items()):
-                ic = iconos_stock.get(str(est).upper(), "🚗")
+                ic = iconos_stock.get(str(est), "🚗")
                 col_dst = cols_f[idx+1] if (idx+1) < len(cols_f) else cols_f[-1]
                 with col_dst:
                     type_b = "primary" if st.session_state.filtro_estado_stock == est else "secondary"
-                    if st.button(f"{ic} {est} ({cant})", use_container_width=True, key=f"btn_master_f_{idx}", type=type_b):
+                    if st.button(f"{ic} {est.title()} ({cant})", use_container_width=True, key=f"btn_master_f_{idx}", type=type_b):
                         st.session_state.filtro_estado_stock = est
 
-        # Aplicamos Filtro Físico al subconjunto de trabajo
         df_filtrado_paso1 = df_stock_real.copy()
         if st.session_state.filtro_estado_stock:
-            df_filtrado_paso1 = df_filtrado_paso1[df_filtrado_paso1["ESTADO"] == st.session_state.filtro_estado_stock]
+            df_filtrado_paso1 = df_filtrado_paso1[df_filtrado_paso1["ESTADO_CLEAN"] == st.session_state.filtro_estado_stock]
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- BLOQUE 3: FILTRO NIVEL 2 (ESTADO DOCUMENTAL) ---
+        # --- BLOQUE 3: FILTRO DOCUMENTAL (NIVEL 2) ---
         st.markdown("#### 📄 Nivel 2: Filtrar por Estado de Documentación (Administrativo)")
         estados_clave = [
             ("Ok Doc", "✅ Doc", "Ok doc"),
@@ -418,7 +429,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                         "filter_val": keyword
                     })
                     
-        cols_doc_buttons = st.columns(min(len(admin_buttons), 5))
+        cols_doc_buttons = st.columns(min(len(admin_buttons), 6))
         for idx, btn_d in enumerate(admin_buttons):
             col_u = cols_doc_buttons[idx % len(cols_doc_buttons)]
             with col_u:
@@ -426,17 +437,15 @@ elif opcion == "📦 Control de Stock y Documentación":
                 if st.button(btn_d["label"], use_container_width=True, key=btn_d["key"], type=type_bd):
                     st.session_state.filtro_estado_admin = btn_d["filter_val"]
 
-        # Aplicamos Filtro Documental
         df_filtrado_paso2 = df_filtrado_paso1.copy()
         if st.session_state.filtro_estado_admin and col_target_admin:
             df_filtrado_paso2 = df_filtrado_paso2[df_filtrado_paso2[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, na=False)]
 
         st.markdown("---")
 
-        # --- BLOQUE 4: CONTROL OPERATIVO (BOTONES CRÍTICOS + TABLA DE ACCIÓN) ---
+        # --- BLOQUE 4: GESTIÓN OPERATIVA Y ALERTAS (NIVEL 3) ---
         st.markdown("### 🚦 Nivel 3: Estado de Gestión Operativa y Alertas")
         
-        # Recalculamos los segmentos específicos sobre lo filtrado en los pasos 1 y 2
         df_op_con_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].notna()]
         df_op_sin_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].isna()]
         
@@ -460,14 +469,13 @@ elif opcion == "📦 Control de Stock y Documentación":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Selección de DataFrame final a renderizar basado en la Botonera Crítica
+        hoy_dt = pd.Timestamp.now().normalize()
         if st.session_state.filtro_gestion_operativa == 'SIN_FECHA_SIN_PEDIDO':
             df_tabla_final = df_op_sin_fecha_sin_pedido
             titulo_tabla = "🚨 Clientes Sin Fecha de Entrega y Bloqueados en Administración"
             ordenar_por = "ANTIGÜEDAD DE STOCK" if "ANTIGÜEDAD DE STOCK" in df_tabla_final.columns else "CLIENTE"
         elif st.session_state.filtro_gestion_operativa == 'ALERTA_PREPARACION':
             df_tabla_final = df_op_alerta_prep.copy()
-            # Lógica inteligente de alerta temporal para el taller
             df_tabla_final["DIAS_EN_TALLER"] = (hoy_dt - df_tabla_final["FECHA_PREPARACION_DT"]).dt.days
             
             def asignar_emoji_alerta(dias):
@@ -476,16 +484,15 @@ elif opcion == "📦 Control de Stock y Documentación":
                 return f"🟢 {dias} días"
                 
             df_tabla_final["Alerta Tiempo"] = df_tabla_final["DIAS_EN_TALLER"].apply(asignar_emoji_alerta)
-            titulo_tabla = "🛠️ Listado de Alertas: Unidades autorizadas para Preparación pero sin fecha asignada"
+            titulo_tabla = "🛠️ Alerta de Taller: Pedido de preparación emitido por administración sin agenda asignada"
             ordenar_por = "DIAS_EN_TALLER"
         else:
             df_tabla_final = df_op_con_fecha
-            titulo_tabla = "🚀 Agenda Programada Listos para Retiro"
+            titulo_tabla = "🚀 Agenda Confirmada Planificada para Entrega"
             ordenar_por = "FECHA_ENTREGA_DT"
 
         st.subheader(f"📋 {titulo_tabla} ({len(df_tabla_final)} unidades)")
         
-        # Definición de columnas solicitadas estratégicas
         cols_mostrar_maestra = [
             "VIN", "CLIENTE", "MARCA", "MODELO", "ESTADO", 
             col_target_admin, "FECHA_PREPARACION_DT", "Alerta Tiempo", 
@@ -495,7 +502,6 @@ elif opcion == "📦 Control de Stock y Documentación":
         df_render_maestro = df_tabla_final[cols_reales_maestra].loc[:, ~df_tabla_final[cols_reales_maestra].columns.duplicated()]
 
         if not df_render_maestro.empty:
-            # Si es por alerta del taller, ponemos arriba los que más días llevan esperando
             ascendente = False if ordenar_por == "DIAS_EN_TALLER" else True
             st.dataframe(
                 df_render_maestro.sort_values(ordenar_por, ascending=ascendente),
@@ -511,7 +517,7 @@ elif opcion == "📦 Control de Stock y Documentación":
         else:
             st.success("✅ No se encontraron registros para este segmento con los filtros seleccionados.")
 
-        # --- BLOQUE 5: ANALÍTICA GRÁFICA DE SOPORTE (Abajo de todo) ---
+        # --- BLOQUE 5: ANALÍTICA GRÁFICA DE SOPORTE ---
         st.markdown("---")
         st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
         
@@ -519,8 +525,8 @@ elif opcion == "📦 Control de Stock y Documentación":
         
         with g1:
             st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha.empty:
-                df_g1 = df_sin_fecha.copy()
+            if col_target_admin and not df_sin_fecha_base.empty:
+                df_g1 = df_sin_fecha_base.copy()
                 df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
                     lambda x: next((name for label, name, kw in estados_clave if kw in x.lower()), "Otros Trámites")
                 )
@@ -531,13 +537,13 @@ elif opcion == "📦 Control de Stock y Documentación":
                 
         with g2:
             st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
-                conteo_g2 = df_sin_fecha["ESTADO"].value_counts()
+            if "ESTADO" in df_sin_fecha_base.columns and not df_sin_fecha_base.empty:
+                conteo_g2 = df_sin_fecha_base["ESTADO_CLEAN"].value_counts()
                 st.bar_chart(conteo_g2, use_container_width=True)
             else:
                 st.info("Sin datos pendientes.")
     else:
-        st.error("No se pudo estructurar el tablero unificado porque el set de datos está vacío.")
+        st.error("Set de datos vacío.")
 
 elif opcion == "🛠️ Control Mantenimiento":
     st.title("🛠️ Planificación de Taller")
