@@ -448,10 +448,10 @@ elif opcion == "📦 Control de Stock y Documentación":
             renderizar_tabla_tiempos_operativa(df_resultado_fisico, "tabla_fisica_pura")
 
         # ---------------------------------------------------------
-        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (SELECTOR DE AÑO EN GRÁFICOS)
         # ---------------------------------------------------------
         with tab_sub_documental:
-            # 1. Doble botonera solicitada por el usuario
+            # 1. Doble botonera de segmentos
             st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación):")
             col_b1, col_b2 = st.columns(2)
             
@@ -480,10 +480,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                 df_tabla_doc_act = df_con_fecha.copy()
                 
                 if not df_tabla_doc_act.empty:
-                    # Inyección de las lógicas temporales pedidas
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days
-                    # Tratar nulos por seguridad visual en la grilla
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = df_tabla_doc_act["DIF_PEDIDO_ENTREGA"].fillna(0).astype(int)
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = df_tabla_doc_act["DIF_PAPELES_ENTREGA"].fillna(0).astype(int)
                 else:
@@ -505,47 +503,55 @@ elif opcion == "📦 Control de Stock y Documentación":
                             "CLIENTE": st.column_config.TextColumn("Cliente"),
                             col_canal_native: st.column_config.TextColumn("Canal de Venta"),
                             col_vendedor_native: st.column_config.TextColumn("Vendedor"),
-                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn(
-                                "Días Pedido ➔ Entrega", 
-                                format="%d", 
-                                help="Días totales transcurridos desde que se pidió la unidad hasta la fecha de entrega pactada con el cliente."
-                            ),
-                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn(
-                                "Días Papeles Disp. ➔ Entrega", 
-                                format="%d", 
-                                help="Días de demora desde que los papeles estuvieron disponibles en la concesionaria hasta el día de la entrega."
-                            )
+                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn("Días Pedido ➔ Entrega", format="%d"),
+                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn("Días Papeles Disp. ➔ Entrega", format="%d")
                         }
                     )
                 else:
                     st.info("No hay vehículos con fecha de entrega planificada.")
                     
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA CON FECHA (CORREGIDOS MENSUALMENTE) ---
+                # --- GRÁFICOS CON FILTRO DE AÑO INTERACTIVO ---
                 st.markdown("---")
                 st.markdown("### 📊 Tendencia de Tiempos Promedio (Unidades con Fecha)")
                 
                 if not df_tabla_doc_act.empty and df_tabla_doc_act["FECHA_ENTREGA_DT"].notna().any():
-                    # Truncamos las fechas al inicio de mes para agrupar cronológicamente de forma limpia
-                    df_tabla_doc_act["MES_EJE"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.to_period('M').dt.to_timestamp()
-                    df_graf_base = df_tabla_doc_act.dropna(subset=["MES_EJE"])
+                    # Extraer años disponibles para el selector dinámico
+                    df_tabla_doc_act["AÑO_FILTRO"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.year
+                    lista_años_disponibles = sorted(df_tabla_doc_act["AÑO_FILTRO"].dropna().unique().astype(int))
                     
-                    # Definimos el rango completo mes a mes desde el mínimo hasta el máximo detectado
-                    min_date = df_graf_base["MES_EJE"].min()
-                    max_date = df_graf_base["MES_EJE"].max()
-                    rango_completo = pd.date_range(start=min_date, end=max_date, freq='MS')
+                    # Agregar "Todos los años" y setear por defecto el año actual si existe
+                    opciones_año_graf = ["Todos los años"] + [str(a) for a in lista_años_disponibles]
+                    default_idx = opciones_año_graf.index("2026") if "2026" in opciones_año_graf else 0
+                    
+                    col_sel_y1, col_vacio_y1 = st.columns([1, 3])
+                    with col_sel_y1:
+                        año_graf_doc_sel = st.selectbox("📅 Seleccionar Año a Graficar:", opciones_año_graf, index=default_idx, key="sel_año_graf_con_fecha")
+                    
+                    # Filtrar el dataframe según la selección
+                    if año_graf_doc_sel == "Todos los años":
+                        df_graf_base = df_tabla_doc_act.copy()
+                        min_date = df_graf_base["FECHA_ENTREGA_DT"].min().to_period('M').to_timestamp()
+                        max_date = df_graf_base["FECHA_ENTREGA_DT"].max().to_period('M').to_timestamp()
+                        rango_completo = pd.date_range(start=min_date, end=max_date, freq='MS')
+                    else:
+                        df_graf_base = df_tabla_doc_act[df_tabla_doc_act["AÑO_FILTRO"] == int(año_graf_doc_sel)].copy()
+                        rango_completo = pd.date_range(start=f"{año_graf_doc_sel}-01-01", end=f"{año_graf_doc_sel}-12-01", freq='MS')
+                    
+                    df_graf_base["MES_EJE"] = df_graf_base["FECHA_ENTREGA_DT"].dt.to_period('M').dt.to_timestamp()
                     
                     g_line1, g_line2 = st.columns(2)
-                    
                     with g_line1:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
                             st.caption("**EJE X:** Línea de tiempo mensual continua.\n\n"
                                        "**EJE Y:** Promedio de días transcurridos desde el pedido hasta la entrega coordinada.")
                         
                         df_g1_line = df_graf_base.groupby("MES_EJE")["DIF_PEDIDO_ENTREGA"].mean().reindex(rango_completo)
-                        if not df_g1_line.dropna().empty:
+                        if not df_g1_line.dropna().empty if año_graf_doc_sel == "Todos los años" else True:
+                            # Formatear el índice para que muestre el nombre del mes de manera legible en el gráfico
+                            df_g1_line.index = df_g1_line.index.strftime('%B %Y' if año_graf_doc_sel == "Todos los años" else '%B')
                             st.line_chart(df_g1_line, use_container_width=True)
                         else:
-                            st.caption("Insuficientes datos cronológicos.")
+                            st.caption("No hay datos para el período seleccionado.")
                             
                     with g_line2:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Entrega)", expanded=False):
@@ -553,10 +559,11 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**EJE Y:** Promedio de días parados desde que los papeles estuvieron listos hasta la entrega física.")
                         
                         df_g2_line = df_graf_base.groupby("MES_EJE")["DIF_PAPELES_ENTREGA"].mean().reindex(rango_completo)
-                        if not df_g2_line.dropna().empty:
+                        if not df_g2_line.dropna().empty if año_graf_doc_sel == "Todos los años" else True:
+                            df_g2_line.index = df_g2_line.index.strftime('%B %Y' if año_graf_doc_sel == "Todos los años" else '%B')
                             st.line_chart(df_g2_line, use_container_width=True)
                         else:
-                            st.caption("Insuficientes datos cronológicos.")
+                            st.caption("No hay datos para el período seleccionado.")
                 else:
                     st.info("Sin históricos para graficar.")
 
@@ -593,26 +600,29 @@ elif opcion == "📦 Control de Stock y Documentación":
                             "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
                             col_canal_native: st.column_config.TextColumn("Canal de Venta"),
                             col_vendedor_native: st.column_config.TextColumn("Vendedor"),
-                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn(
-                                "Días Pedido ➔ Hoy", 
-                                format="%d", 
-                                help="Días acumulados desde la fecha de pedido de la unidad hasta el día de hoy, sin haber coordinado aún la entrega."
-                            ),
-                            "DIF_PAPELES_HOY": st.column_config.NumberColumn(
-                                "Días Papeles Disp. ➔ Hoy", 
-                                format="%d", 
-                                help="Días que lleva el vehículo con los papeles listos y disponibles en la empresa hasta el día de hoy sin agendar entrega."
-                            )
+                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
+                            "DIF_PAPELES_HOY": st.column_config.NumberColumn("Días Papeles Disp. ➔ Hoy", format="%d")
                         }
                     )
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
                     
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA SIN FECHA (CORREGIDOS MENSUALMENTE) ---
+                # --- GRÁFICOS CON FILTRO DE AÑO INTERACTIVO ---
                 st.markdown("---")
                 st.markdown("### 📊 Tendencia de Envejecimiento (Unidades Pendientes Sin Fecha)")
                 
                 if not df_tabla_doc_pend.empty:
+                    # Extraer años de la columna nativa de pedido para el selector
+                    df_tabla_doc_pend["AÑO_FILTRO_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.year
+                    lista_años_pend = sorted(df_tabla_doc_pend["AÑO_FILTRO_PEDIDO"].dropna().unique().astype(int))
+                    
+                    opciones_año_pend = ["Todos los años"] + [str(a) for a in lista_años_pend]
+                    default_idx_pend = opciones_año_pend.index("2026") if "2026" in opciones_año_pend else 0
+                    
+                    col_sel_y2, col_vacio_y2 = st.columns([1, 3])
+                    with col_sel_y2:
+                        año_graf_pend_sel = st.selectbox("📅 Seleccionar Año a Graficar:", opciones_año_pend, index=default_idx_pend, key="sel_año_graf_sin_fecha")
+                    
                     g_line3, g_line4 = st.columns(2)
                     
                     with g_line3:
@@ -621,10 +631,17 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**EJE Y:** Promedio de días acumulados en espera hasta hoy.")
                         
                         if df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].notna().any():
-                            df_tabla_doc_pend["MES_EJE_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.to_period('M').dt.to_timestamp()
-                            df_g3_base = df_tabla_doc_pend.dropna(subset=["MES_EJE_PEDIDO"])
-                            rango_c3 = pd.date_range(start=df_g3_base["MES_EJE_PEDIDO"].min(), end=df_g3_base["MES_EJE_PEDIDO"].max(), freq='MS')
+                            if año_graf_pend_sel == "Todos los años":
+                                df_g3_base = df_tabla_doc_pend.copy()
+                                rango_c3 = pd.date_range(start=df_g3_base["FECHA_PEDIDO_UNIDAD_DT"].min().to_period('M').to_timestamp(), end=df_g3_base["FECHA_PEDIDO_UNIDAD_DT"].max().to_period('M').to_timestamp(), freq='MS')
+                            else:
+                                df_g3_base = df_tabla_doc_pend[df_tabla_doc_pend["AÑO_FILTRO_PEDIDO"] == int(año_graf_pend_sel)].copy()
+                                rango_c3 = pd.date_range(start=f"{año_graf_pend_sel}-01-01", end=f"{año_graf_pend_sel}-12-01", freq='MS')
+                                
+                            df_g3_base["MES_EJE_PEDIDO"] = df_g3_base["FECHA_PEDIDO_UNIDAD_DT"].dt.to_period('M').dt.to_timestamp()
                             df_g3 = df_g3_base.groupby("MES_EJE_PEDIDO")["DIF_PEDIDO_HOY"].mean().reindex(rango_c3)
+                            
+                            df_g3.index = df_g3.index.strftime('%B %Y' if año_graf_pend_sel == "Todos los años" else '%B')
                             st.line_chart(df_g3, use_container_width=True)
                         else:
                             st.caption("Faltan registros con fecha de pedido.")
@@ -635,10 +652,19 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**EJE Y:** Promedio de días parados sin agendar entrega.")
                         
                         if df_tabla_doc_pend["FECHA_PAPELES_DT"].notna().any():
-                            df_tabla_doc_pend["MES_EJE_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.to_period('M').dt.to_timestamp()
-                            df_g4_base = df_tabla_doc_pend.dropna(subset=["MES_EJE_PAPELES"])
-                            rango_c4 = pd.date_range(start=df_g4_base["MES_EJE_PAPELES"].min(), end=df_g4_base["MES_EJE_PAPELES"].max(), freq='MS')
+                            df_tabla_doc_pend["AÑO_FILTRO_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.year
+                            
+                            if año_graf_pend_sel == "Todos los años":
+                                df_g4_base = df_tabla_doc_pend.copy()
+                                rango_c4 = pd.date_range(start=df_g4_base["FECHA_PAPELES_DT"].min().to_period('M').to_timestamp(), end=df_g4_base["FECHA_PAPELES_DT"].max().to_period('M').to_timestamp(), freq='MS')
+                            else:
+                                df_g4_base = df_tabla_doc_pend[df_tabla_doc_pend["AÑO_FILTRO_PAPELES"] == int(año_graf_pend_sel)].copy()
+                                rango_c4 = pd.date_range(start=f"{año_graf_pend_sel}-01-01", end=f"{año_graf_pend_sel}-12-01", freq='MS')
+                                
+                            df_g4_base["MES_EJE_PAPELES"] = df_g4_base["FECHA_PAPELES_DT"].dt.to_period('M').dt.to_timestamp()
                             df_g4 = df_g4_base.groupby("MES_EJE_PAPELES")["DIF_PAPELES_HOY"].mean().reindex(rango_c4)
+                            
+                            df_g4.index = df_g4.index.strftime('%B %Y' if año_graf_pend_sel == "Todos los años" else '%B')
                             st.line_chart(df_g4, use_container_width=True)
                         else:
                             st.caption("Faltan registros con papeles disponibles asignados.")
@@ -715,7 +741,7 @@ elif opcion == "🛠️ Control Mantenimiento":
             if st.session_state.filtro_mantenimiento != 'todos': st.success("✅ ¡Nada pendiente!")
             else: st.success("✅ ¡Felicitaciones! No hay mantenimientos atrasados.")
     else:
-        st.warning("No se encontraron datos.")
+        st.sidebar.warning("No se encontraron datos.")
 
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
