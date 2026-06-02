@@ -447,7 +447,6 @@ elif opcion == "📦 Control de Stock y Documentación":
             st.markdown(f"##### 📋 Tabla de Control Operativo y Alertas de Tiempos — Estado Físico: `{label_f_act}`")
             renderizar_tabla_tiempos_operativa(df_resultado_fisico, "tabla_fisica_pura")
 
-
         # ---------------------------------------------------------
         # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS)
         # ---------------------------------------------------------
@@ -493,7 +492,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                     
                 cols_a_mostrar = ["MARCA", "VIN", "CLIENTE", col_canal_native, col_vendedor_native, "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"]
                 cols_reales_a = [c for c in cols_a_mostrar if c in df_tabla_doc_act.columns]
-                df_final_render_a = df_tabla_doc_act[cols_reales_values := cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_values].columns.duplicated()]
+                df_final_render_a = df_tabla_doc_act[cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_a].columns.duplicated()]
                 
                 if not df_final_render_a.empty:
                     st.dataframe(
@@ -532,14 +531,13 @@ elif opcion == "📦 Control de Stock y Documentación":
                     g_line1, g_line2 = st.columns(2)
                     
                     with g_line1:
-                        # Cuadro interactivo de información explicativa del grafico con el signo ?
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
                             st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra cuándo se cerró el ciclo logístico).\n\n"
                                        "**EJE Y:** Promedio de días transcurridos. Evalúa la velocidad global del embudo comercial.")
                         
-                        df_g1 = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g1.empty:
-                            st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        df_g1_line = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        if not df_g1_line.empty:
+                            st.line_chart(df_g1_line.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Insuficientes datos cronológicos.")
                             
@@ -548,9 +546,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                             st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra la eficiencia del mes de cierre).\n\n"
                                        "**EJE Y:** Promedio de días de retraso. Evalúa la rapidez administrativa para entregar tras patentar.")
                         
-                        df_g2 = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g2.empty:
-                            st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        df_g2_line = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        if not df_g2_line.empty:
+                            st.line_chart(df_g2_line.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Insuficientes datos cronológicos.")
                 else:
@@ -575,7 +573,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                     
                 cols_b_mostrar = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"]
                 cols_reales_b = [c for c in cols_b_mostrar if c in df_tabla_doc_pend.columns]
-                df_final_render_b = df_tabla_doc_pend[cols_reales_values_b := cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_values_b].columns.duplicated()]
+                df_final_render_b = df_tabla_doc_pend[cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_b].columns.duplicated()]
                 
                 if not df_final_render_b.empty:
                     st.dataframe(
@@ -636,30 +634,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                             st.caption("Faltan registros con papeles disponibles asignados.")
                 else:
                     st.info("Sin vehículos pendientes para calcular tendencias gráficas.")
-
-
-        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo del módulo general) ---
-        st.markdown("---")
-        st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha.empty:
-                df_g1 = df_sin_fecha.copy()
-                df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
-                    lambda x: next((name for label, kw in estados_clave_doc if kw in x.lower()), "Otros Trámites")
-                )
-                conteo_g1 = df_g1["Resumen Admin"].value_counts()
-                st.bar_chart(conteo_g1, use_container_width=True)
-            else:
-                st.info("Sin datos pendientes.")
-        with g2:
-            st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
-                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
-                st.bar_chart(conteo_g2, use_container_width=True)
-            else:
-                st.info("Sin datos pendientes.")
     else:
         st.error("Set de datos vacío.")
 
