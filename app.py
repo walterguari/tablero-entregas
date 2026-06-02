@@ -286,7 +286,7 @@ elif opcion == "📦 Control de Stock y Documentación":
     
     if not df_raw.empty:
         # --- FILTROS SIDEBAR ---
-        st.sidebar.header("Filtros Generales")
+        st.sidebar.header("Filtros Generals")
         if "MARCA" in df_raw.columns:
             marcas_sel = st.sidebar.multiselect("Filtrar Marca", df_raw["MARCA"].unique(), default=df_raw["MARCA"].unique())
             df_raw = df_raw[df_raw["MARCA"].isin(marcas_sel)]
