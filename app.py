@@ -315,7 +315,6 @@ elif opcion == "🚗 Agenda de Usados":
 elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
     
-    # Clonamos el DataFrame original
     df_raw = df_0km.copy()
     
     if not df_raw.empty:
@@ -335,33 +334,41 @@ elif opcion == "📦 Control de Stock y Documentación":
         elif "ESTADO ADMINISTRATIVO" in df_raw.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_raw.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
-        # =========================================================
-        # REESTRUCTURACIÓN ESTRICTA DE LA LÓGICA DE LAS TARJETAS
-        # =========================================================
-        
         # Estandarizamos y limpiamos la columna ESTADO eliminando los vacíos y espacios
         df_raw["ESTADO_CLEAN"] = df_raw["ESTADO"].astype(str).str.strip().str.upper()
         df_base_limpia = df_raw[df_raw["ESTADO"].notna() & (df_raw["ESTADO_CLEAN"] != "NAN") & (df_raw["ESTADO_CLEAN"] != "")]
 
-        # Tarjeta 4: Entregados Históricos (Estrictamente los que dicen ENTREGADO)
+        # Tarjeta 4: Entregados Históricos
         df_entregados_hist = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] == "ENTREGADO"]
 
-        # Tarjeta 1: Total Stock Real (Con texto válido, pero que NO es entregado)
+        # Tarjeta 1: Total Stock Real
         df_stock_real = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
 
-        # Tarjeta 2: Con Fecha de Entrega (Dentro del Stock Real, tienen fecha confirmada asignada)
+        # Tarjeta 2: Con Fecha de Entrega
         df_con_fecha = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].notna()]
 
-        # Universo base que NO tiene fecha confirmada asignada
+        # Universo que NO tiene fecha confirmada asignada
         df_sin_fecha_base = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].isna()]
 
-        # Tarjeta 3: SIN Fecha de Entrega (Tienen cliente asignado O poseen fecha de pedido de preparación, pero sin agenda confirmada)
+        # =========================================================
+        # REFORMA REGLA CRUZADA CORREGIDA PARA TARJETA 3: SIN FECHA
+        # =========================================================
         col_cliente = "CLIENTE" if "CLIENTE" in df_sin_fecha_base.columns else None
         
         if col_cliente:
-            mask_tiene_cliente = df_sin_fecha_base[col_cliente].notna() & (df_sin_fecha_base[col_cliente].astype(str).str.strip() != "") & (df_sin_fecha_base[col_cliente].astype(str).str.upper() != "NAN")
+            # Creamos una serie limpia en mayúsculas para realizar exclusiones textuales exactas e inteligentes
+            df_sin_fecha_base["CLIENTE_UPPER"] = df_sin_fecha_base[col_cliente].astype(str).str.strip().str.upper()
+            
+            # Filtro estricto sobre columna Cliente: Excluye vacíos, leyendas "NAN" y texto "UNIDAD SIN CLIENTE ASIGNADO"
+            mask_tiene_cliente = (
+                df_sin_fecha_base[col_cliente].notna() & 
+                (df_sin_fecha_base["CLIENTE_UPPER"] != "") & 
+                (df_sin_fecha_base["CLIENTE_UPPER"] != "NAN") & 
+                (df_sin_fecha_base["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
+            )
             mask_tiene_pedido = df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
-            # Unifica ambas condiciones (Cliente o Pedido de preparación cargado)
+            
+            # Unifica ambas condiciones válidas (Cliente real asignado O Pedido de preparación activo)
             df_sin_fecha = df_sin_fecha_base[mask_tiene_cliente | mask_tiene_pedido]
         else:
             df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()]
@@ -371,7 +378,7 @@ elif opcion == "📦 Control de Stock y Documentación":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades vivas cargadas en stock. Excluye vacíos y entregados.")
         kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que poseen fecha confirmada de entrega.")
-        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales asignados en espera, sin turno asignado.")
+        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales asignados o con pedido en espera, sin turno de entrega asignado.")
         kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total acumulado histórico de vehículos entregados.")
         
         st.markdown("---")
@@ -446,11 +453,26 @@ elif opcion == "📦 Control de Stock y Documentación":
         # --- BLOQUE 4: GESTIÓN OPERATIVA Y ALERTAS (NIVEL 3) ---
         st.markdown("### 🚦 Nivel 3: Estado de Gestión Operativa y Alertas")
         
+        # Recalculamos los segmentos operativos dinámicos basándonos en las nuevas exclusiones
         df_op_con_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].notna()]
         df_op_sin_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].isna()]
         
-        df_op_alerta_prep = df_op_sin_fecha[df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()]
-        df_op_sin_fecha_sin_pedido = df_op_sin_fecha[df_op_sin_fecha["FECHA_PREPARACION_DT"].isna()]
+        # Filtramos para que las tablas operativas de pendientes sigan estrictamente la nueva regla de clientes corregida
+        if col_cliente:
+            df_op_sin_fecha["CLIENTE_UPPER"] = df_op_sin_fecha[col_cliente].astype(str).str.strip().str.upper()
+            mask_op_cliente = (
+                df_op_sin_fecha[col_cliente].notna() & 
+                (df_op_sin_fecha["CLIENTE_UPPER"] != "") & 
+                (df_op_sin_fecha["CLIENTE_UPPER"] != "NAN") & 
+                (df_op_sin_fecha["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
+            )
+            mask_op_pedido = df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()
+            df_op_pendientes_reales = df_op_sin_fecha[mask_op_cliente | mask_op_pedido]
+        else:
+            df_op_pendientes_reales = df_op_sin_fecha[df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()]
+
+        df_op_alerta_prep = df_op_pendientes_reales[df_op_pendientes_reales["FECHA_PREPARACION_DT"].notna()]
+        df_op_sin_fecha_sin_pedido = df_op_pendientes_reales[df_op_pendientes_reales["FECHA_PREPARACION_DT"].isna()]
 
         op1, op2, op3 = st.columns(3)
         
@@ -525,8 +547,8 @@ elif opcion == "📦 Control de Stock y Documentación":
         
         with g1:
             st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha_base.empty:
-                df_g1 = df_sin_fecha_base.copy()
+            if col_target_admin and not df_sin_fecha.empty:
+                df_g1 = df_sin_fecha.copy()
                 df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
                     lambda x: next((name for label, name, kw in estados_clave if kw in x.lower()), "Otros Trámites")
                 )
@@ -537,8 +559,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                 
         with g2:
             st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha_base.columns and not df_sin_fecha_base.empty:
-                conteo_g2 = df_sin_fecha_base["ESTADO_CLEAN"].value_counts()
+            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
+                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
                 st.bar_chart(conteo_g2, use_container_width=True)
             else:
                 st.info("Sin datos pendientes.")
