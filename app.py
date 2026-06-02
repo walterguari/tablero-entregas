@@ -196,6 +196,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 config_columnas = {}
                 
                 if es_usado:
+                    # Ajuste: Se remueve CORREO_CLEAN de la lista
                     cols_agenda = [
                         "FECHA_ENTREGA_DT", 
                         "HORA", 
@@ -207,7 +208,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                         "MODELO", 
                         "DOMINIO", 
                         "TELEFONO_CLEAN", 
-                        "CORREO_CLEAN", 
                         "VENDEDOR (BOLETO)"
                     ]
                     
@@ -222,7 +222,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                         "MODELO": st.column_config.TextColumn("Modelo"),
                         "DOMINIO": st.column_config.TextColumn("Dominio"),
                         "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
-                        "CORREO_CLEAN": st.column_config.TextColumn("Correo Electrónico"),
                         "VENDEDOR (BOLETO)": st.column_config.TextColumn("Vendedor (Boleto)")
                     }
                 else:
@@ -230,7 +229,8 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
                     if col_admin: 
                         cols_agenda.append(col_admin)
-                    cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "CORREO_CLEAN", "VENDEDOR"])
+                    # Ajuste: Se remueve CORREO_CLEAN de la lista
+                    cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "VENDEDOR"])
                     
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
@@ -251,13 +251,33 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
             
-            # --- SECCIÓN GRÁFICO CORREGIDO (CRONOLÓGICO SEGURO) ---
-            if not df_año.empty:
-                st.markdown("---")
-                tipo_unidades = "0KM" if not es_usado else "Usados"
-                st.subheader(f"📊 Volumen de Entregas por Mes {tipo_unidades} ({año_sel})")
-                
-                # Lista con el orden cronológico explícito deseado para las etiquetas
+            # --- SECCIÓN GRÁFICO CORREGIDO Y CON FILTRO INTERNO ---
+            st.markdown("---")
+            tipo_unidades = "0KM" if not es_usado else "Usados"
+            
+            st.subheader(f"📊 Volumen de Entregas por Mes {tipo_unidades}")
+            
+            # Ajuste: Filtro interno para el gráfico (Año por año o Todos los años)
+            opciones_grafico = ["Todos los años"] + [str(a) for a in años]
+            # Selecciona por defecto el año que está marcado en el sidebar para mantener consistencia visual inicial
+            año_grafico_sel = st.selectbox(
+                "Seleccionar período para el gráfico:", 
+                options=opciones_grafico, 
+                index=opciones_grafico.index(str(año_sel)),
+                key=f"grafico_filtro_{session_key_vista}"
+            )
+
+            # Lógica de filtrado para el gráfico basado en la selección interna
+            if año_grafico_sel == "Todos los años":
+                df_grafico = df_target.dropna(subset=["N_MES_ENTREGA"]).copy()
+                subtitulo_grafico = "(Histórico Consolidado)"
+            else:
+                df_grafico = df_target[(df_target["AÑO_ENTREGA"] == int(año_grafico_sel))].dropna(subset=["N_MES_ENTREGA"]).copy()
+                subtitulo_grafico = f"({año_grafico_sel})"
+
+            st.caption(f"Visualizando: {subtitulo_grafico}")
+
+            if not df_grafico.empty:
                 orden_meses = [
                     "01-Enero", "02-Febrero", "03-Marzo", "04-Abril", "05-Mayo", "06-Junio",
                     "07-Julio", "08-Agosto", "09-Septiembre", "10-Octubre", "11-Noviembre", "12-Diciembre"
@@ -267,17 +287,15 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                     7: "07-Julio", 8: "08-Agosto", 9: "09-Septiembre", 10: "10-Octubre", 11: "11-Noviembre", 12: "12-Diciembre"
                 }
                 
-                df_grafico = df_año.dropna(subset=["N_MES_ENTREGA"]).copy()
                 df_grouped = df_grafico.groupby("N_MES_ENTREGA").size().reset_index(name="Cantidad de Entregas")
                 df_grouped["Mes"] = df_grouped["N_MES_ENTREGA"].map(meses_es)
                 
-                # Reindexamos usando la lista ordenada para asegurar que aparezcan cronológicamente y no alfabéticamente
                 df_grouped = df_grouped.set_index("Mes").reindex(orden_meses).fillna(0)
-                
-                # Ocultamos los meses que tienen 0 entregas si prefieres mantener el gráfico limpio
                 df_grouped = df_grouped[df_grouped["Cantidad de Entregas"] > 0]
                 
                 st.bar_chart(df_grouped["Cantidad de Entregas"], use_container_width=True)
+            else:
+                st.info("No hay datos disponibles para el período seleccionado en el gráfico.")
 
         else:
             st.sidebar.warning("No se encontraron años en los datos.")
