@@ -126,7 +126,7 @@ if 'filtro_estado_admin' not in st.session_state: st.session_state.filtro_estado
 if 'modo_vista_0km' not in st.session_state: st.session_state.modo_vista_0km = 'mes'
 if 'modo_vista_usados' not in st.session_state: st.session_state.modo_vista_usados = 'mes'
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
-# Nueva memoria para los botones horizontales de la sub-pestaña de Documentación
+# Memoria para los botones de Con Fecha / SIN Fecha de la pestaña Documentación
 if 'filtro_doc_segmento' not in st.session_state: st.session_state.filtro_doc_segmento = '🚀 Con Fecha de Entrega'
 
 # ==========================================
@@ -323,10 +323,8 @@ elif opcion == "📦 Control de Stock y Documentación":
             )
             mask_tiene_pedido = df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
             
-            # Condición base: tiene cliente asignado o posee orden/pedido de preparación
             mask_base_sin_fecha = mask_tiene_cliente | mask_tiene_pedido
             
-            # Nuevas exclusiones de estados administrativos solicitadas por el usuario
             if col_target_admin:
                 df_sin_fecha_base["ADMIN_UPPER"] = df_sin_fecha_base[col_target_admin].astype(str).str.strip().str.upper()
                 mask_excluir_estados = (
@@ -334,12 +332,10 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_sin_fecha_base["ADMIN_UPPER"].str.contains("SIN CLIENTE", na=False) |
                     df_sin_fecha_base["ADMIN_UPPER"].str.contains("REVENTA", na=False)
                 )
-                # Unificamos: cumple criterio base Y NO pertenece a ninguno de los estados excluidos
                 df_sin_fecha = df_sin_fecha_base[mask_base_sin_fecha & ~mask_excluir_estados]
             else:
                 df_sin_fecha = df_sin_fecha_base[mask_base_sin_fecha]
         else:
-            # Fallback seguro si la planilla no contiene columna de cliente
             if col_target_admin:
                 df_sin_fecha_base["ADMIN_UPPER"] = df_sin_fecha_base[col_target_admin].astype(str).str.strip().str.upper()
                 mask_excluir_estados = (
@@ -449,10 +445,10 @@ elif opcion == "📦 Control de Stock y Documentación":
 
 
         # ---------------------------------------------------------
-        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS INDEPENDIENTES)
         # ---------------------------------------------------------
         with tab_sub_documental:
-            # 1. Doble botonera solicitada por el usuario
+            # Doble botonera solicitada por el usuario
             st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación):")
             col_b1, col_b2 = st.columns(2)
             
@@ -481,10 +477,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                 df_tabla_doc_act = df_con_fecha.copy()
                 
                 if not df_tabla_doc_act.empty:
-                    # Inyección de las lógicas temporales pedidas
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days
-                    # Tratar nulos por seguridad visual en la grilla
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = df_tabla_doc_act["DIF_PEDIDO_ENTREGA"].fillna(0).astype(int)
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = df_tabla_doc_act["DIF_PAPELES_ENTREGA"].fillna(0).astype(int)
                 else:
@@ -520,41 +514,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                     )
                 else:
                     st.info("No hay vehículos con fecha de entrega planificada.")
-                    
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA CON FECHA ---
-                st.markdown("---")
-                st.markdown("### 📊 Tendencia de Tiempos Promedio (Unidades con Fecha)")
-                
-                if not df_tabla_doc_act.empty:
-                    df_tabla_doc_act["AÑO_MES_X"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
-                    df_graf_base = df_tabla_doc_act.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
-                    
-                    g_line1, g_line2 = st.columns(2)
-                    
-                    with g_line1:
-                        # Cuadro interactivo de información explicativa del grafico con el signo ?
-                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra cuándo se cerró el ciclo logístico).\n\n"
-                                       "**EJE Y:** Promedio de días transcurridos. Evalúa la velocidad global del embudo comercial.")
-                        
-                        df_g1 = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g1.empty:
-                            st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
-                        else:
-                            st.caption("Insuficientes datos cronológicos.")
-                            
-                    with g_line2:
-                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Entrega)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra la eficiencia del mes de cierre).\n\n"
-                                       "**EJE Y:** Promedio de días de retraso. Evalúa la rapidez administrativa para entregar tras patentar.")
-                        
-                        df_g2 = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g2.empty:
-                            st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
-                        else:
-                            st.caption("Insuficientes datos cronológicos.")
-                else:
-                    st.info("Sin históricos para graficar.")
 
             # -----------------------------------------------------
             # ESCENARIO B: 🚨 SIN FECHA DE ENTREGA SELECTOR ACTIVO
@@ -603,63 +562,44 @@ elif opcion == "📦 Control de Stock y Documentación":
                     )
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
-                    
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA SIN FECHA ---
-                st.markdown("---")
-                st.markdown("### 📊 Tendencia de Envejecimiento (Unidades Pendientes Sin Fecha)")
+
+            # --- NUEVO: BLOQUE FIJO E INDEPENDIENTE DE GRÁFICOS DE TENDENCIA ---
+            st.markdown("---")
+            st.markdown("### 📊 Tendencia de Tiempos Promedio (Unidades con Fecha)")
+            
+            df_graficos_estaticos = df_con_fecha.copy()
+            if not df_graficos_estaticos.empty:
+                df_graficos_estaticos["DIF_PEDIDO_ENTREGA"] = (df_graficos_estaticos["FECHA_ENTREGA_DT"] - df_graficos_estaticos["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                df_graficos_estaticos["DIF_PAPELES_ENTREGA"] = (df_graficos_estaticos["FECHA_ENTREGA_DT"] - df_graficos_estaticos["FECHA_PAPELES_DT"]).dt.days
+                df_graficos_estaticos["AÑO_MES_X"] = df_graficos_estaticos["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
+                df_graf_base = df_graficos_estaticos.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
                 
-                if not df_tabla_doc_pend.empty:
-                    g_line3, g_line4 = st.columns(2)
+                g_line1, g_line2 = st.columns(2)
+                
+                with g_line1:
+                    with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
+                        st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra cuándo se cerró el ciclo logístico).\n\n"
+                                   "**EJE Y:** Promedio de días transcurridos. Evalúa la velocidad global del embudo comercial.")
                     
-                    with g_line3:
-                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Hoy)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Pedido (Muestra cuándo nació originalmente la orden bloqueada).\n\n"
-                                       "**EJE Y:** Promedio de días acumulados en espera. Picos altos en meses pasados delatan deudas históricas.")
+                    df_g1 = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
+                    if not df_g1.empty:
+                        st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                    else:
+                        st.caption("Insuficientes datos cronológicos.")
                         
-                        df_tabla_doc_pend["AÑO_MES_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.strftime('%Y-%m')
-                        df_g3 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PEDIDO"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
-                        if not df_g3.empty:
-                            st.line_chart(df_g3.set_index("AÑO_MES_PEDIDO")["Promedio Días"], use_container_width=True)
-                        else:
-                            st.caption("Faltan registros con fecha de pedido.")
-                            
-                    with g_line4:
-                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Hoy)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Disponibilidad de Papeles (Registra cuándo liberó el trámite gestoría).\n\n"
-                                       "**EJE Y:** Promedio de días parados sin entregar. Ideal para detectar fallas de coordinación comercial.")
-                        
-                        df_tabla_doc_pend["AÑO_MES_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.strftime('%Y-%m')
-                        df_g4 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PAPELES"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
-                        if not df_g4.empty:
-                            st.line_chart(df_g4.set_index("AÑO_MES_PAPELES")["Promedio Días"], use_container_width=True)
-                        else:
-                            st.caption("Faltan registros con papeles disponibles asignados.")
-                else:
-                    st.info("Sin vehículos pendientes para calcular tendencias gráficas.")
-
-
-        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo del módulo general) ---
-        st.markdown("---")
-        st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha.empty:
-                df_g1 = df_sin_fecha.copy()
-                df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
-                    lambda x: next((name for label, kw in estados_clave_doc if kw in x.lower()), "Otros Trámites")
-                )
-                conteo_g1 = df_g1["Resumen Admin"].value_counts()
-                st.bar_chart(conteo_g1, use_container_width=True)
+                with g_line2:
+                    with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Entrega)", expanded=False):
+                        st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra la eficiencia del mes de cierre).\n\n"
+                                   "**EJE Y:** Promedio de días de retraso. Evalúa la rapidez administrativa para entregar tras patentar.")
+                    
+                    df_g2 = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
+                    if not df_g2.empty:
+                        st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                    else:
+                        st.caption("Insuficientes datos cronológicos.")
             else:
-                st.info("Sin datos pendientes.")
-        with g2:
-            st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
-                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
-                st.bar_chart(conteo_g2, use_container_width=True)
-            else:
-                st.info("Sin datos pendientes.")
+                st.info("Sin datos históricos con fecha para calcular las líneas de tendencia.")
+
     else:
         st.error("Set de datos vacío.")
 
