@@ -447,7 +447,7 @@ elif opcion == "📦 Control de Stock y Documentación":
 
 
         # ---------------------------------------------------------
-        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS INTERACTIVOS SEPARADOS)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (GRÁFICOS MENSUALES CORREGIDOS)
         # ---------------------------------------------------------
         with tab_sub_documental:
             # Doble botonera operativa de tablas
@@ -565,7 +565,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
 
-            # --- NUEVA SECCIÓN: TENDENCIA DE TIEMPOS PROMEDIO CON BOTONES EXCLUSIVOS INDEPENDIENTES ---
+            # --- SECCIÓN: TENDENCIA DE TIEMPOS PROMEDIO (AJUSTADO A MENSAL VISUAL) ---
             st.markdown("---")
             st.markdown("### 📈 Tendencia de Tiempos Promedio")
             
@@ -587,6 +587,7 @@ elif opcion == "📦 Control de Stock y Documentación":
             if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
                 df_g_con = df_con_fecha.copy()
                 if not df_g_con.empty:
+                    df_g_con = df_g_con.dropna(subset=["FECHA_ENTREGA_DT"])
                     df_g_con["DIF_PEDIDO_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
                     df_g_con["DIF_PAPELES_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PAPELES_DT"]).dt.days
                     df_g_con["AÑO_MES_X"] = df_g_con["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
@@ -599,9 +600,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**Por qué:** Nos permite agrupar y evaluar la eficiencia de las unidades que efectivamente se cerraron y entregaron en ese mes específico.\n\n"
                                        "**EJE Y (Días):** Promedio de días transcurridos generales.")
                         
-                        df_g1 = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        df_g1 = df_graf_base.dropna(subset=["DIF_PEDIDO_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
                         if not df_g1.empty:
-                            st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                            st.bar_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Faltan datos cronológicos.")
                             
@@ -612,9 +613,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**Recomendación:** Usar la Fecha de Entrega al Cliente es lo ideal aquí para medir el rendimiento de entrega del equipo de administración/gestoría durante ese mes evaluado.\n\n"
                                        "**EJE Y (Días):** Promedio de días de demora desde la liberación del trámite.")
                         
-                        df_g2 = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        df_g2 = df_graf_base.dropna(subset=["DIF_PAPELES_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
                         if not df_g2.empty:
-                            st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                            st.bar_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Faltan datos cronológicos.")
                 else:
@@ -635,9 +636,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**EJE Y (Días):** Promedio de días de retraso acumulados hasta HOY.")
                         
                         df_g_pend["AÑO_MES_PEDIDO"] = df_g_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.strftime('%Y-%m')
-                        df_g3 = df_g_pend.dropna(subset=["AÑO_MES_PEDIDO"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
+                        df_g3 = df_g_pend.dropna(subset=["AÑO_MES_PEDIDO", "DIF_PEDIDO_HOY"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
                         if not df_g3.empty:
-                            st.line_chart(df_g3.set_index("AÑO_MES_PEDIDO")["Promedio Días"], use_container_width=True)
+                            st.bar_chart(df_g3.set_index("AÑO_MES_PEDIDO")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Faltan registros con fecha de pedido.")
                             
@@ -649,9 +650,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                                        "**EJE Y (Días):** Promedio de días estancados administrativamente hasta HOY.")
                         
                         df_g_pend["AÑO_MES_PAPELES"] = df_g_pend["FECHA_PAPELES_DT"].dt.strftime('%Y-%m')
-                        df_g4 = df_g_pend.dropna(subset=["AÑO_MES_PAPELES"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
+                        df_g4 = df_g_pend.dropna(subset=["AÑO_MES_PAPELES", "DIF_PAPELES_HOY"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
                         if not df_g4.empty:
-                            st.line_chart(df_g4.set_index("AÑO_MES_PAPELES")["Promedio Días"], use_container_width=True)
+                            st.bar_chart(df_g4.set_index("AÑO_MES_PAPELES")["Promedio Días"], use_container_width=True)
                         else:
                             st.caption("Faltan registros con papeles liberados.")
                 else:
