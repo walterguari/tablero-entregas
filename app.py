@@ -284,6 +284,9 @@ elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
     df_raw = df_0km.copy()
     
+    # 🌟 DEFINICIÓN DE HOY PARA EVITAR NAMEERROR EN TODAS LAS SUB-VISTAS
+    hoy_dt = pd.Timestamp.now().normalize()
+    
     if not df_raw.empty:
         # --- FILTROS SIDEBAR ---
         st.sidebar.header("Filtros Generales")
@@ -356,7 +359,7 @@ elif opcion == "📦 Control de Stock y Documentación":
         
         st.markdown("---")
 
-        # --- FUNCIÓN ENCAPSULADA DE RENDERIZACIÓN PARA LAS TABLAS ---
+        # --- FUNCIÓN ENCAPSULADA DE RENDERIZACIÓN PARA LAS TABLAS (ESTADO FÍSICO) ---
         def renderizar_tabla_tiempos_operativa(df_segmento):
             hoy_actual = pd.Timestamp.now().normalize()
             df_tabla = df_segmento.copy()
@@ -394,7 +397,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                         "FECHA_PREPARACION_DT": st.column_config.DateColumn("Fecha Pedido Preparación", format="DD/MM/YYYY"),
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmación Entrega", format="DD/MM/YYYY"),
                         "DIAS_PASADOS": st.column_config.NumberColumn("Tiempo Transcurrido (Días)", format="%d"),
-                        "ALERTA_OPERATIVA": st.column_config.TextColumn("Alerta Operativa")
+                        "ALERTA_OPERATIVA": st.column_config.TextColumn("Alerta Operativa"),
+                        col_vendedor: st.column_config.TextColumn("Vendedor"),
+                        col_canal: st.column_config.TextColumn("Canal de Venta")
                     }
                 )
             else:
@@ -432,7 +437,6 @@ elif opcion == "📦 Control de Stock y Documentación":
             renderizar_tabla_tiempos_operativa(df_resultado_fisico)
 
         with tab_sub_documental:
-            # Botones exclusivos para mutar las TABLAS de abajo (Los gráficos quedan fijos y visibles)
             st.markdown("##### Seleccionar segmento operativo a visualizar en la Tabla inferior:")
             col_bt1, col_bt2 = st.columns(2)
             type_bt1 = "primary" if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega' else "secondary"
@@ -447,7 +451,7 @@ elif opcion == "📦 Control de Stock y Documentación":
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Cálculo de columnas de diferencias operativas por adelantado
+            # CÁLCULOS SEGUROS E INYECCIÓN DE COLUMNAS PARA EVITAR NAMEERROR
             df_con_fecha_calc = df_con_fecha.copy()
             if not df_con_fecha_calc.empty:
                 df_con_fecha_calc["DIF_PEDIDO_ENTREGA"] = (df_con_fecha_calc["FECHA_ENTREGA_DT"] - df_con_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
@@ -457,31 +461,75 @@ elif opcion == "📦 Control de Stock y Documentación":
             df_sin_fecha_calc = df_sin_fecha.copy()
             if not df_sin_fecha_calc.empty:
                 df_sin_fecha_calc["DIF_PEDIDO_HOY"] = (hoy_dt - df_sin_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
+                df_sin_fecha_calc["DIF_PAPELES_HOY"] = (hoy_dt - df_sin_fecha_calc["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
                 df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"] = df_sin_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"].dt.year
 
-            # --- RENDERIZADO DE TABLA SEGÚN BOTÓN ACTIVO ---
+            # --- RENDERIZADO DE TABLAS CON SUS CONFIGURACIONES ORIGINALES COMPLETA RESTAURADAS ---
             if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
                 if not df_con_fecha_calc.empty:
                     cols_a = ["MARCA", "VIN", "CLIENTE", col_canal_native, col_vendedor_native, "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"]
                     cols_r_a = [c for c in cols_a if c in df_con_fecha_calc.columns]
-                    st.dataframe(df_con_fecha_calc[cols_r_a].sort_values(by="CLIENTE"), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        df_con_fecha_calc[cols_r_a].sort_values(by="CLIENTE"), 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "MARCA": st.column_config.TextColumn("Marca"),
+                            "VIN": st.column_config.TextColumn("VIN"),
+                            "CLIENTE": st.column_config.TextColumn("Cliente"),
+                            col_canal_native: st.column_config.TextColumn("Canal de Venta"),
+                            col_vendedor_native: st.column_config.TextColumn("Vendedor"),
+                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn(
+                                "Días Pedido ➔ Entrega", 
+                                format="%d", 
+                                help="Días totales transcurridos desde que se pidió la unidad hasta la fecha de entrega pactada con el cliente."
+                            ),
+                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn(
+                                "Días Papeles Disp. ➔ Entrega", 
+                                format="%d", 
+                                help="Días de demora desde que los papeles estuvieron disponibles en la concesionaria hasta el día de la entrega."
+                            )
+                        }
+                    )
                 else:
                     st.info("No hay vehículos con fecha.")
             else:
                 if not df_sin_fecha_calc.empty:
-                    cols_b = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY"]
+                    cols_b = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"]
                     cols_r_b = [c for c in cols_b if c in df_sin_fecha_calc.columns]
-                    st.dataframe(df_sin_fecha_calc[cols_r_b].sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        df_sin_fecha_calc[cols_r_b].sort_values(by="DIF_PEDIDO_HOY", ascending=False), 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "MARCA": st.column_config.TextColumn("Marca"),
+                            "VIN": st.column_config.TextColumn("VIN"),
+                            "CLIENTE": st.column_config.TextColumn("Cliente"),
+                            "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                            col_canal_native: st.column_config.TextColumn("Canal de Venta"),
+                            col_vendedor_native: st.column_config.TextColumn("Vendedor"),
+                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn(
+                                "Días Pedido ➔ Hoy", 
+                                format="%d", 
+                                help="Días acumulados desde la fecha de pedido de la unidad hasta el día de hoy, sin haber coordinado aún la entrega."
+                            ),
+                            "DIF_PAPELES_HOY": st.column_config.NumberColumn(
+                                "Días Papeles Disp. ➔ Hoy", 
+                                format="%d", 
+                                help="Días que lleva el vehículo con los papeles listos y disponibles en la empresa hasta el día de hoy sin agendar entrega."
+                            )
+                        }
+                    )
                 else:
                     st.success("✅ Todo agendado.")
 
             # ==============================================================================
-            # 📊 SECCIÓN UNIFICADA Y PERMANENTE DE GRÁFICOS DE LÍNEAS (CON SELECTOR DE AÑO)
+            # 📊 SECCIÓN UNIFICADA Y PERMANENTE DE GRÁFICOS DE LÍNEAS 
             # ==============================================================================
             st.markdown("---")
             st.markdown("### 📈 Históricos y Tendencias de Tiempos Promedio")
             
-            # Recolectar años de ambos universos para armar un filtro unificado
+            # Recolectar años disponibles de ambas fuentes
             años_totales = set()
             if not df_con_fecha_calc.empty: años_totales.update(df_con_fecha_calc["AÑO_FILTRO"].dropna().unique().astype(int))
             if not df_sin_fecha_calc.empty: años_totales.update(df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"].dropna().unique().astype(int))
@@ -493,7 +541,7 @@ elif opcion == "📦 Control de Stock y Documentación":
             with col_u1:
                 año_unificado_sel = st.selectbox("📅 Seleccionar Año de Análisis:", opciones_periodo, index=default_idx_unificado, key="sel_año_unificado_graficos")
             
-            # Preparación de rangos cronológicos estrictos (Eje X ordenado)
+            # Índices fijos del Eje X para forzar orden cronológico real
             meses_indices = range(1, 13)
             nombres_meses_es = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             
