@@ -301,7 +301,7 @@ elif opcion == "📦 Control de Stock y Documentación":
         df_con_fecha = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].notna()]
         df_sin_fecha_base = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].isna()]
 
-        # Regla cruzada corregida para Tarjeta 3 (SIN Fecha)
+        # --- REGLA OPERATIVA DE FILTRADO Y EXCLUSIONES PARA LA TARJETA 3 (🚨 SIN FECHA) ---
         col_cliente = "CLIENTE" if "CLIENTE" in df_sin_fecha_base.columns else None
         if col_cliente:
             df_sin_fecha_base["CLIENTE_UPPER"] = df_sin_fecha_base[col_cliente].astype(str).str.strip().str.upper()
@@ -312,16 +312,41 @@ elif opcion == "📦 Control de Stock y Documentación":
                 (df_sin_fecha_base["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
             )
             mask_tiene_pedido = df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
-            df_sin_fecha = df_sin_fecha_base[mask_tiene_cliente | mask_tiene_pedido]
+            
+            # Condición base: tiene cliente asignado o posee orden/pedido de preparación
+            mask_base_sin_fecha = mask_tiene_cliente | mask_tiene_pedido
+            
+            # Nuevas exclusiones de estados administrativos solicitadas por el usuario
+            if col_target_admin:
+                df_sin_fecha_base["ADMIN_UPPER"] = df_sin_fecha_base[col_target_admin].astype(str).str.strip().str.upper()
+                mask_excluir_estados = (
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("LEGALES", na=False) |
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("SIN CLIENTE", na=False) |
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("REVENTA", na=False)
+                )
+                # Unificamos: cumple criterio base Y NO pertenece a ninguno de los estados excluidos
+                df_sin_fecha = df_sin_fecha_base[mask_base_sin_fecha & ~mask_excluir_estados]
+            else:
+                df_sin_fecha = df_sin_fecha_base[mask_base_sin_fecha]
         else:
-            df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()]
+            # Fallback seguro si la planilla no contiene columna de cliente
+            if col_target_admin:
+                df_sin_fecha_base["ADMIN_UPPER"] = df_sin_fecha_base[col_target_admin].astype(str).str.strip().str.upper()
+                mask_excluir_estados = (
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("LEGALES", na=False) |
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("SIN CLIENTE", na=False) |
+                    df_sin_fecha_base["ADMIN_UPPER"].str.contains("REVENTA", na=False)
+                )
+                df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna() & ~mask_excluir_estados]
+            else:
+                df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()]
 
         # --- BLOQUE 1: RENDERING KPI CARDS ---
         st.markdown("### 📈 Resumen del Embudo Operativo")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades vivas cargadas en stock. Excluye vacíos y entregados.")
         kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que poseen fecha confirmada de entrega.")
-        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales o con pedido en espera, sin turno asignado.")
+        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales o con pedido en espera, sin turno asignado. Excluye Legales, Autopatentados sin cliente y Reventas.")
         kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total acumulado histórico de vehículos entregados.")
         
         st.markdown("---")
@@ -464,8 +489,9 @@ elif opcion == "📦 Control de Stock y Documentación":
         g1, g2 = st.columns(2)
         with g1:
             st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha_base.empty:
-                df_g1 = df_sin_fecha_base.copy()
+            # Usamos df_sin_fecha que ya contiene aplicadas tus tres exclusiones para que las gráficas coincidan al 100% con los KPIs superiores
+            if col_target_admin and not df_sin_fecha.empty:
+                df_g1 = df_sin_fecha.copy()
                 df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
                     lambda x: next((name for label, kw in estados_clave_doc if kw in x.lower()), "Otros Trámites")
                 )
@@ -475,8 +501,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                 st.info("Sin datos pendientes.")
         with g2:
             st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha_base.columns and not df_sin_fecha_base.empty:
-                conteo_g2 = df_sin_fecha_base["ESTADO_CLEAN"].value_counts()
+            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
+                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
                 st.bar_chart(conteo_g2, use_container_width=True)
             else:
                 st.info("Sin datos pendientes.")
