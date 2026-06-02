@@ -138,7 +138,7 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# FUNCIÓN DE AGENDA OPTIMIZADA
+# FUNCIÓN AGENDA EN BI-VISTAS (COMPARTIDA)
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
@@ -197,24 +197,10 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
 
             if not df_final.empty:
                 st.subheader(f"📋 {titulo}")
-                
                 config_columnas = {}
                 
                 if es_usado:
-                    cols_agenda = [
-                        "FECHA_ENTREGA_DT", 
-                        "HORA", 
-                        "CLIENTE", 
-                        "ESTADO DEL TRAMITE", 
-                        "TIPO DE UNIDAD", 
-                        "ESTADO DE UNIDAD", 
-                        "MARCA", 
-                        "MODELO", 
-                        "DOMINIO", 
-                        "TELEFONO_CLEAN", 
-                        "VENDEDOR (BOLETO)"
-                    ]
-                    
+                    cols_agenda = ["FECHA_ENTREGA_DT", "HORA", "CLIENTE", "ESTADO DEL TRAMITE", "TIPO DE UNIDAD", "ESTADO DE UNIDAD", "MARCA", "MODELO", "DOMINIO", "TELEFONO_CLEAN", "VENDEDOR (BOLETO)"]
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmada de Entrega", format="DD/MM/YYYY"),
                         "HORA": st.column_config.TextColumn("Hora"),
@@ -231,10 +217,8 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 else:
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
-                    if col_admin: 
-                        cols_agenda.append(col_admin)
+                    if col_admin: cols_agenda.append(col_admin)
                     cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "VENDEDOR"])
-                    
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
                         "HS DE ENTREGA AL CLIENTE": st.column_config.TextColumn("Hora"),
@@ -243,30 +227,16 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
-                
-                st.dataframe(
-                    df_render.sort_values(cols_reales[0] if cols_reales else "CLIENTE"), 
-                    use_container_width=True, 
-                    hide_index=True, 
-                    column_config=config_columnas
-                )
+                st.dataframe(df_render.sort_values(cols_reales[0] if cols_reales else "CLIENTE"), use_container_width=True, hide_index=True, column_config=config_columnas)
             else:
-                if st.session_state[session_key_vista] != 'mes': 
-                    st.info("No hay vehículos aquí.")
+                if st.session_state[session_key_vista] != 'mes': st.info("No hay vehículos aquí.")
             
             # --- SECCIÓN GRÁFICO ---
             st.markdown("---")
             tipo_unidades = "0KM" if not es_usado else "Usados"
-            
             st.subheader(f"📊 Volumen de Entregas por Mes {tipo_unidades}")
-            
             opciones_grafico = ["Todos los años"] + [str(a) for a in años]
-            año_grafico_sel = st.selectbox(
-                "Seleccionar período para el gráfico:", 
-                options=opciones_grafico, 
-                index=opciones_grafico.index(str(año_sel)),
-                key=f"grafico_filtro_{session_key_vista}"
-            )
+            año_grafico_sel = st.selectbox("Seleccionar período para el gráfico:", options=opciones_grafico, index=opciones_grafico.index(str(año_sel)), key=f"grafico_filtro_{session_key_vista}")
 
             if año_grafico_sel == "Todos los años":
                 df_grafico = df_target.dropna(subset=["N_MES_ENTREGA"]).copy()
@@ -276,34 +246,23 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 subtitulo_grafico = f"({año_grafico_sel})"
 
             st.caption(f"Visualizando: {subtitulo_grafico}")
-
             if not df_grafico.empty:
-                orden_meses = [
-                    "01-Enero", "02-Febrero", "03-Marzo", "04-Abril", "05-Mayo", "06-Junio",
-                    "07-Julio", "08-Agosto", "09-Septiembre", "10-Octubre", "11-Noviembre", "12-Diciembre"
-                ]
-                meses_es = {
-                    1: "01-Enero", 2: "02-Febrero", 3: "03-Marzo", 4: "04-Abril", 5: "05-Mayo", 6: "06-Junio",
-                    7: "07-Julio", 8: "08-Agosto", 9: "09-Septiembre", 10: "10-Octubre", 11: "11-Noviembre", 12: "12-Diciembre"
-                }
-                
+                orden_meses = ["01-Enero", "02-Febrero", "03-Marzo", "04-Abril", "05-Mayo", "06-Junio", "07-Julio", "08-Agosto", "09-Septiembre", "10-Octubre", "11-Noviembre", "12-Diciembre"]
+                meses_es = {1: "01-Enero", 2: "02-Febrero", 3: "03-Marzo", 4: "04-Abril", 5: "05-Mayo", 6: "06-Junio", 7: "07-Julio", 8: "08-Agosto", 9: "09-Septiembre", 10: "10-Octubre", 11: "11-Noviembre", 12: "12-Diciembre"}
                 df_grouped = df_grafico.groupby("N_MES_ENTREGA").size().reset_index(name="Cantidad de Entregas")
                 df_grouped["Mes"] = df_grouped["N_MES_ENTREGA"].map(meses_es)
-                
                 df_grouped = df_grouped.set_index("Mes").reindex(orden_meses).fillna(0)
                 df_grouped = df_grouped[df_grouped["Cantidad de Entregas"] > 0]
-                
                 st.bar_chart(df_grouped["Cantidad de Entregas"], use_container_width=True)
             else:
-                st.info("No hay datos disponibles para el período seleccionado en el gráfico.")
-
+                st.info("No hay datos disponibles para el gráfico.")
         else:
-            st.sidebar.warning("No se encontraron años en los datos.")
+            st.sidebar.warning("No se encontraron años.")
     else:
-        st.error("No se pudo cargar la fecha de entrega o los datos están vacíos.")
+        st.error("Set de datos vacío o con errores.")
 
 # ==========================================
-# RENDERIZADO DE LAS PESTAÑAS
+# MODELO PRINCIPAL: UNIFICADO STOCK & DOCS
 # ==========================================
 if opcion == "📅 Planificación Entregas 0KM":
     render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usado=False)
@@ -313,7 +272,6 @@ elif opcion == "🚗 Agenda de Usados":
 
 elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
-    
     df_raw = df_0km.copy()
     
     if not df_raw.empty:
@@ -333,17 +291,17 @@ elif opcion == "📦 Control de Stock y Documentación":
         elif "ESTADO ADMINISTRATIVO" in df_raw.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_raw.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
-        # Estandarizamos y limpiamos la columna ESTADO
+        # Estandarización estricta de la columna ESTADO
         df_raw["ESTADO_CLEAN"] = df_raw["ESTADO"].astype(str).str.strip().str.upper()
         df_base_limpia = df_raw[df_raw["ESTADO"].notna() & (df_raw["ESTADO_CLEAN"] != "NAN") & (df_raw["ESTADO_CLEAN"] != "")]
 
-        # Separación Base Metricas
+        # Separación Base Métricas
         df_entregados_hist = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] == "ENTREGADO"]
         df_stock_real = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
         df_con_fecha = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].notna()]
         df_sin_fecha_base = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].isna()]
 
-        # Regla cruzada estricta para Tarjeta 3 (SIN Fecha)
+        # Regla cruzada corregida para Tarjeta 3 (SIN Fecha)
         col_cliente = "CLIENTE" if "CLIENTE" in df_sin_fecha_base.columns else None
         if col_cliente:
             df_sin_fecha_base["CLIENTE_UPPER"] = df_sin_fecha_base[col_cliente].astype(str).str.strip().str.upper()
@@ -363,20 +321,71 @@ elif opcion == "📦 Control de Stock y Documentación":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades vivas cargadas en stock. Excluye vacíos y entregados.")
         kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que poseen fecha confirmada de entrega.")
-        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales en espera sin turno de entrega asignado.")
+        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales o con pedido en espera, sin turno asignado.")
         kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total acumulado histórico de vehículos entregados.")
         
         st.markdown("---")
 
         # =========================================================
-        # 📂 LAS DOS GRANDES SUB-PESTAÑAS ESTRATÉGICAS (CORREGIDO)
+        # 📂 FUNCIÓN ENCAPSULADA DE RENDERIZACIÓN PARA LA TABLA MAESTRA CRÍTICA
+        # =========================================================
+        def renderizar_tabla_tiempos_operativa(df_segmento, key_origen):
+            hoy_actual = pd.Timestamp.now().normalize()
+            df_tabla = df_segmento.copy()
+            
+            # Inyección obligatoria de lógica de cálculo temporal
+            if not df_tabla.empty:
+                # Si viene vacía la fecha de preparación, calculamos 0 días por seguridad
+                df_tabla["FECHA_PREPARACION_DT"] = df_tabla["FECHA_PREPARACION_DT"].fillna(hoy_actual)
+                df_tabla["DIAS_PASADOS"] = (hoy_actual - df_tabla["FECHA_PREPARACION_DT"]).dt.days
+                
+                # Función semáforo de plazos operativos
+                def alertar_semaforo(dias):
+                    if dias >= 6: return f"🔴 Crítico ({dias} días)"
+                    elif dias >= 3: return f"⚠️ Demorado ({dias} días)"
+                    return f"🟢 Al Día ({dias} días)"
+                    
+                df_tabla["ALERTA_OPERATIVA"] = df_tabla["DIAS_PASADOS"].apply(alertar_semaforo)
+            else:
+                df_tabla["DIAS_PASADOS"] = pd.Series(dtype=int)
+                df_tabla["ALERTA_OPERATIVA"] = pd.Series(dtype=str)
+
+            col_vendedor = "VENDEDOR" if "VENDEDOR" in df_tabla.columns else ("VENDEDOR (BOLETO)" if "VENDEDOR (BOLETO)" in df_tabla.columns else "VENDEDOR")
+            col_canal = "CANAL DE VENTA" if "CANAL DE VENTA" in df_tabla.columns else "CANAL DE VENTA"
+            
+            cols_estructuradas = [
+                "VIN", "CLIENTE", col_vendedor, col_canal, "MARCA", "MODELO", 
+                "FECHA_PREPARACION_DT", "FECHA_ENTREGA_DT", "DIAS_PASADOS", "ALERTA_OPERATIVA"
+            ]
+            
+            # Validamos que existan en la planilla y eliminamos duplicados visuales
+            cols_reales_tabla = [c for c in cols_estructuradas if c in df_tabla.columns]
+            df_render_maestro = df_tabla[cols_reales_tabla].loc[:, ~df_tabla[cols_reales_tabla].columns.duplicated()]
+            
+            if not df_render_maestro.empty:
+                st.dataframe(
+                    df_render_maestro.sort_values(by="DIAS_PASADOS" if "DIAS_PASADOS" in df_render_maestro.columns else "CLIENTE", ascending=False),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "FECHA_PREPARACION_DT": st.column_config.DateColumn("Fecha Pedido Preparación", format="DD/MM/YYYY"),
+                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmación Entrega", format="DD/MM/YYYY"),
+                        "DIAS_PASADOS": st.column_config.NumberColumn("Tiempo Transcurrido (Días)", format="%d"),
+                        "ALERTA_OPERATIVA": st.column_config.TextColumn("Alerta Operativa"),
+                        col_vendedor: st.column_config.TextColumn("Vendedor"),
+                        col_canal: st.column_config.TextColumn("Canal de Venta")
+                    }
+                )
+            else:
+                st.success("✅ Todo al día para esta combinación de estados en el sistema.")
+
+        # =========================================================
+        # 📂 LAS DOS GRANDES SUB-PESTAÑAS DE INTERFAZ DEL PANEL
         # =========================================================
         tab_sub_fisico, tab_sub_documental = st.tabs(["🏢 Estado Físico de Unidad", "📄 Estado de Documentación"])
-        
-        hoy_dt = pd.Timestamp.now().normalize()
 
         # ---------------------------------------------------------
-        # CONTENIDO SUB-PESTAÑA 1: ESTADO FÍSICO DE UNIDAD (BOTONES)
+        # PESTAÑA A: ESTADO FÍSICO DE UNIDAD (CON BOTONES ADENTRO)
         # ---------------------------------------------------------
         with tab_sub_fisico:
             if "ESTADO" in df_stock_real.columns:
@@ -386,7 +395,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                 cols_f = st.columns(len(conteo_fisico) + 1)
                 with cols_f[0]:
                     type_t = "primary" if st.session_state.filtro_estado_stock is None else "secondary"
-                    if st.button(f"📋 Todos Real Stock ({len(df_stock_real)})", use_container_width=True, key="btn_tab_f_todos", type=type_t):
+                    if st.button(f"📋 Todos Real Stock ({len(df_stock_real)})", use_container_width=True, key="btn_f_todos_puro", type=type_t):
                         st.session_state.filtro_estado_stock = None
                         
                 for idx, (est, cant) in enumerate(conteo_fisico.items()):
@@ -394,68 +403,23 @@ elif opcion == "📦 Control de Stock y Documentación":
                     col_dst = cols_f[idx+1] if (idx+1) < len(cols_f) else cols_f[-1]
                     with col_dst:
                         type_b = "primary" if st.session_state.filtro_estado_stock == est else "secondary"
-                        if st.button(f"{ic} {est.title()} ({cant})", use_container_width=True, key=f"btn_tab_f_{idx}", type=type_b):
+                        if st.button(f"{ic} {est.title()} ({cant})", use_container_width=True, key=f"btn_f_item_{idx}", type=type_b):
                             st.session_state.filtro_estado_stock = est
 
-            # Filtrado físico puro e independiente
-            df_tabla_fisica = df_stock_real.copy()
+            # Filtrado Puro Independiente Físico
+            df_resultado_fisico = df_stock_real.copy()
             if st.session_state.filtro_estado_stock:
-                df_tabla_fisica = df_tabla_fisica[df_tabla_fisica["ESTADO_CLEAN"] == st.session_state.filtro_estado_stock]
+                df_resultado_fisico = df_resultado_fisico[df_resultado_fisico["ESTADO_CLEAN"] == st.session_state.filtro_estado_stock]
 
-            # Tabla de Acción Operativa interna para esta vista física
+            # Inyección directa de la Tabla Única con Control de Tiempos
             st.markdown("<br>", unsafe_allow_html=True)
-            df_f_con_fecha = df_tabla_fisica[df_tabla_fisica["FECHA_ENTREGA_DT"].notna()]
-            df_f_sin_fecha = df_tabla_fisica[df_tabla_fisica["FECHA_ENTREGA_DT"].isna()]
-            
-            if col_cliente:
-                df_f_sin_fecha["CLIENTE_UPPER"] = df_f_sin_fecha[col_cliente].astype(str).str.strip().str.upper()
-                mask_f_c = (df_f_sin_fecha[col_cliente].notna() & (df_f_sin_fecha["CLIENTE_UPPER"] != "") & (df_f_sin_fecha["CLIENTE_UPPER"] != "NAN") & (df_f_sin_fecha["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO"))
-                mask_f_p = df_f_sin_fecha["FECHA_PREPARACION_DT"].notna()
-                df_f_pendientes = df_f_sin_fecha[mask_f_c | mask_f_p]
-            else:
-                df_f_pendientes = df_f_sin_fecha[df_f_sin_fecha["FECHA_PREPARACION_DT"].notna()]
-                
-            df_f_alerta_prep = df_f_pendientes[df_f_pendientes["FECHA_PREPARACION_DT"].notna()]
-            df_f_sin_fecha_sin_pedido = df_f_pendientes[df_f_pendientes["FECHA_PREPARACION_DT"].isna()]
-            
-            v_tabla_f = st.radio(
-                "Seleccionar segmento operativo a visualizar (Físico):",
-                options=[
-                    f"🚨 Sin Fecha y Sin Pedido ({len(df_f_sin_fecha_sin_pedido)})",
-                    f"🛠️ Alerta: En Preparación ({len(df_f_alerta_prep)})",
-                    f"🚀 Con Fecha Confirmada ({len(df_f_con_fecha)})"
-                ],
-                horizontal=True,
-                key="radio_vista_f_puro"
-            )
-            
-            if "🚨" in v_tabla_f:
-                df_f_render = df_f_sin_fecha_sin_pedido
-                tit_f = "Clientes Sin Fecha de Entrega y Bloqueados en Administración"
-                order_f = "ANTIGÜEDAD DE STOCK" if "ANTIGÜEDAD DE STOCK" in df_f_render.columns else "CLIENTE"
-            elif "🛠️" in v_tabla_f:
-                df_f_render = df_f_alerta_prep.copy()
-                if not df_f_render.empty:
-                    df_f_render["DIAS_EN_TALLER"] = (hoy_dt - df_f_render["FECHA_PREPARACION_DT"]).dt.days
-                    df_f_render["Alerta Tiempo"] = df_f_render["DIAS_EN_TALLER"].apply(lambda d: f"🔴 {d} días" if d >= 3 else (f"⚠️ {d} días" if d >= 1 else f"🟢 {d} días"))
-                tit_f = "Alerta de Taller: Pedidos autorizados listos para preparación"
-                order_f = "DIAS_EN_TALLER" if not df_f_render.empty else "CLIENTE"
-            else:
-                df_f_render = df_f_con_fecha
-                tit_f = "Agenda Confirmada Planificada para Entrega"
-                order_f = "FECHA_ENTREGA_DT"
-                
-            st.markdown(f"##### 📋 {tit_f} ({len(df_f_render)} unidades)")
-            cols_reales_f = [c for c in ["VIN", "CLIENTE", "MARCA", "MODELO", "ESTADO", col_target_admin, "FECHA_PREPARACION_DT", "Alerta Tiempo", "FECHA_ENTREGA_DT", "UBICACION", "ANTIGÜEDAD DE STOCK", "ANTIGUEDAD DE STOCK"] if c in df_f_render.columns]
-            df_f_final_m = df_f_render[cols_reales_f].loc[:, ~df_f_render[cols_reales_f].columns.duplicated()]
-            
-            if not df_f_final_m.empty:
-                st.dataframe(df_f_final_m.sort_values(order_f, ascending=(False if order_f == "DIAS_EN_TALLER" else True)), use_container_width=True, hide_index=True)
-            else:
-                st.success("✅ Todo al día para esta categoría física.")
+            label_f_act = st.session_state.filtro_estado_stock if st.session_state.filtro_estado_stock else "Todos Real Stock"
+            st.markdown(f"##### 📋 Tabla de Control Operativo y Alertas de Tiempos — Estado Físico: `{label_f_act}`")
+            renderizar_tabla_tiempos_operativa(df_resultado_fisico, "tabla_fisica_pura")
+
 
         # ---------------------------------------------------------
-        # CONTENIDO SUB-PESTAÑA 2: ESTADO DE DOCUMENTACIÓN (BOTONES)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CON BOTONES ADENTRO)
         # ---------------------------------------------------------
         with tab_sub_documental:
             estados_clave_doc = [
@@ -467,7 +431,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                 ("Firma titular", "titular")
             ]
             
-            # Generación dinámica de botones basados en la base real completa
             admin_buttons_config = [{"label": f"♾️ Cualquier Papel ({len(df_stock_real)})", "filter_val": None}]
             if col_target_admin:
                 for label_b, keyword in estados_clave_doc:
@@ -480,67 +443,22 @@ elif opcion == "📦 Control de Stock y Documentación":
                 col_u = cols_d[idx % len(cols_d)]
                 with col_u:
                     type_bd = "primary" if st.session_state.filtro_estado_admin == btn_cfg["filter_val"] else "secondary"
-                    if st.button(btn_cfg["label"], use_container_width=True, key=f"btn_tab_d_{idx}", type=type_bd):
+                    if st.button(btn_cfg["label"], use_container_width=True, key=f"btn_d_item_{idx}", type=type_bd):
                         st.session_state.filtro_estado_admin = btn_cfg["filter_val"]
 
-            # Filtrado documental puro e independiente
-            df_tabla_doc = df_stock_real.copy()
+            # Filtrado Puro Independiente Documental
+            df_resultado_doc = df_stock_real.copy()
             if st.session_state.filtro_estado_admin and col_target_admin:
-                df_tabla_doc = df_tabla_doc[df_tabla_doc[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, na=False)]
+                df_resultado_doc = df_resultado_doc[df_resultado_doc[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, na=False)]
 
-            # Tabla de Acción Operativa interna para esta vista documental
+            # Inyección directa de la Tabla Única con Control de Tiempos
             st.markdown("<br>", unsafe_allow_html=True)
-            df_d_con_fecha = df_tabla_doc[df_tabla_doc["FECHA_ENTREGA_DT"].notna()]
-            df_d_sin_fecha = df_tabla_doc[df_tabla_doc["FECHA_ENTREGA_DT"].isna()]
-            
-            if col_cliente:
-                df_d_sin_fecha["CLIENTE_UPPER"] = df_d_sin_fecha[col_cliente].astype(str).str.strip().str.upper()
-                mask_d_c = (df_d_sin_fecha[col_cliente].notna() & (df_d_sin_fecha["CLIENTE_UPPER"] != "") & (df_d_sin_fecha["CLIENTE_UPPER"] != "NAN") & (df_d_sin_fecha["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO"))
-                mask_d_p = df_d_sin_fecha["FECHA_PREPARACION_DT"].notna()
-                df_d_pendientes = df_d_sin_fecha[mask_d_c | mask_d_p]
-            else:
-                df_d_pendientes = df_d_sin_fecha[df_d_sin_fecha["FECHA_PREPARACION_DT"].notna()]
-                
-            df_d_alerta_prep = df_d_pendientes[df_d_pendientes["FECHA_PREPARACION_DT"].notna()]
-            df_d_sin_fecha_sin_pedido = df_d_pendientes[df_d_pendientes["FECHA_PREPARACION_DT"].isna()]
-            
-            v_tabla_d = st.radio(
-                "Seleccionar segmento operativo a visualizar (Documental):",
-                options=[
-                    f"🚨 Sin Fecha y Sin Pedido ({len(df_d_sin_fecha_sin_pedido)})",
-                    f"🛠️ Alerta: En Preparación ({len(df_d_alerta_prep)})",
-                    f"🚀 Con Fecha Confirmada ({len(df_d_con_fecha)})"
-                ],
-                horizontal=True,
-                key="radio_vista_d_puro"
-            )
-            
-            if "🚨" in v_tabla_d:
-                df_d_render = df_d_sin_fecha_sin_pedido
-                tit_d = "Clientes Sin Fecha de Entrega y Bloqueados en Administración"
-                order_d = "ANTIGÜEDAD DE STOCK" if "ANTIGÜEDAD DE STOCK" in df_d_render.columns else "CLIENTE"
-            elif "🛠️" in v_tabla_d:
-                df_d_render = df_d_alerta_prep.copy()
-                if not df_d_render.empty:
-                    df_d_render["DIAS_EN_TALLER"] = (hoy_dt - df_d_render["FECHA_PREPARACION_DT"]).dt.days
-                    df_d_render["Alerta Tiempo"] = df_d_render["DIAS_EN_TALLER"].apply(lambda d: f"🔴 {d} días" if d >= 3 else (f"⚠️ {d} días" if d >= 1 else f"🟢 {d} días"))
-                tit_d = "Alerta de Taller: Pedidos autorizados listos para preparación"
-                order_d = "DIAS_EN_TALLER" if not df_d_render.empty else "CLIENTE"
-            else:
-                df_d_render = df_d_con_fecha
-                tit_d = "Agenda Confirmada Planificada para Entrega"
-                order_d = "FECHA_ENTREGA_DT"
-                
-            st.markdown(f"##### 📋 {tit_d} ({len(df_d_render)} unidades)")
-            cols_reales_d = [c for c in ["VIN", "CLIENTE", "MARCA", "MODELO", "ESTADO", col_target_admin, "FECHA_PREPARACION_DT", "Alerta Tiempo", "FECHA_ENTREGA_DT", "UBICACION", "ANTIGÜEDAD DE STOCK", "ANTIGUEDAD DE STOCK"] if c in df_d_render.columns]
-            df_d_final_m = df_d_render[cols_reales_d].loc[:, ~df_d_render[cols_reales_d].columns.duplicated()]
-            
-            if not df_d_final_m.empty:
-                st.dataframe(df_d_final_m.sort_values(order_d, ascending=(False if order_d == "DIAS_EN_TALLER" else True)), use_container_width=True, hide_index=True)
-            else:
-                st.success("✅ Todo al día para esta categoría documental.")
+            label_d_act = st.session_state.filtro_estado_admin if st.session_state.filtro_estado_admin else "Cualquier Papel"
+            st.markdown(f"##### 📋 Tabla de Control Operativo y Alertas de Tiempos — Estado Documental: `{label_d_act}`")
+            renderizar_tabla_tiempos_operativa(df_resultado_doc, "tabla_doc_pura")
 
-        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo de todo) ---
+
+        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo del modulo general) ---
         st.markdown("---")
         st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
         g1, g2 = st.columns(2)
