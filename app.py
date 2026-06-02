@@ -449,10 +449,11 @@ elif opcion == "📦 Control de Stock y Documentación":
 
 
         # ---------------------------------------------------------
-        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (GRÁFICOS DE LÍNEAS INDEPENDIENTES)
+        # PESTAÑA B: ESTADO DE DOCUMENTACIÓN (CORREGIDA CON DOBLE BOTONERA MÓVIL Y GRÁFICOS)
         # ---------------------------------------------------------
         with tab_sub_documental:
-            st.markdown("##### Seleccionar segmento operativo a visualizar en la Tabla inferior:")
+            # 1. Doble botonera solicitada por el usuario
+            st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación):")
             col_b1, col_b2 = st.columns(2)
             
             type_b1 = "primary" if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega' else "secondary"
@@ -468,31 +469,35 @@ elif opcion == "📦 Control de Stock y Documentación":
             st.markdown("<br>", unsafe_allow_html=True)
             hoy_dt = pd.Timestamp.now().normalize()
             
-            # 🌟 SOLUCIÓN: Definición de variables nativas arriba para evitar el NameError en las grillas inferiores
             col_vendedor_native = "VENDEDOR" if "VENDEDOR" in df_stock_real.columns else ("VENDEDOR (BOLETO)" if "VENDEDOR (BOLETO)" in df_stock_real.columns else "VENDEDOR")
             col_canal_native = "CANAL DE VENTA" if "CANAL DE VENTA" in df_stock_real.columns else "CANAL DE VENTA"
 
-            # Pre-cálculo seguro de las diferencias para las grillas
-            df_con_fecha_calc = df_con_fecha.copy()
-            if not df_con_fecha_calc.empty:
-                df_con_fecha_calc["DIF_PEDIDO_ENTREGA"] = (df_con_fecha_calc["FECHA_ENTREGA_DT"] - df_con_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
-                df_con_fecha_calc["DIF_PAPELES_ENTREGA"] = (df_con_fecha_calc["FECHA_ENTREGA_DT"] - df_con_fecha_calc["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
-                df_con_fecha_calc["AÑO_FILTRO"] = df_con_fecha_calc["FECHA_ENTREGA_DT"].dt.year
-            
-            df_sin_fecha_calc = df_sin_fecha.copy()
-            if not df_sin_fecha_calc.empty:
-                df_sin_fecha_calc["DIF_PEDIDO_HOY"] = (hoy_dt - df_sin_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
-                df_sin_fecha_calc["DIF_PAPELES_HOY"] = (hoy_dt - df_sin_fecha_calc["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
-                df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"] = df_sin_fecha_calc["FECHA_PEDIDO_UNIDAD_DT"].dt.year
-
-            # --- ESCENARIO A: 🚀 CON FECHA DE ENTREGA ---
+            # -----------------------------------------------------
+            # ESCENARIO A: 🚀 CON FECHA DE ENTREGA SELECTOR ACTIVO
+            # -----------------------------------------------------
             if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
                 st.markdown(f"##### 📋 Tabla de Control Operativo — `{st.session_state.filtro_doc_segmento}`")
-                if not df_con_fecha_calc.empty:
-                    cols_a_mostrar = ["MARCA", "VIN", "CLIENTE", col_canal_native, col_vendedor_native, "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"]
-                    cols_reales_a = [c for c in cols_a_mostrar if c in df_con_fecha_calc.columns]
+                
+                df_tabla_doc_act = df_con_fecha.copy()
+                
+                if not df_tabla_doc_act.empty:
+                    # Inyección de las lógicas temporales pedidas
+                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days
+                    # Tratar nulos por seguridad visual en la grilla
+                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = df_tabla_doc_act["DIF_PEDIDO_ENTREGA"].fillna(0).astype(int)
+                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = df_tabla_doc_act["DIF_PAPELES_ENTREGA"].fillna(0).astype(int)
+                else:
+                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
+                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
+                    
+                cols_a_mostrar = ["MARCA", "VIN", "CLIENTE", col_canal_native, col_vendedor_native, "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"]
+                cols_reales_a = [c for c in cols_a_mostrar if c in df_tabla_doc_act.columns]
+                df_final_render_a = df_tabla_doc_act[cols_reales_values := cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_values].columns.duplicated()]
+                
+                if not df_final_render_a.empty:
                     st.dataframe(
-                        df_con_fecha_calc[cols_reales_a].sort_values(by="CLIENTE"),
+                        df_final_render_a.sort_values(by="CLIENTE"),
                         use_container_width=True,
                         hide_index=True,
                         column_config={
@@ -501,21 +506,80 @@ elif opcion == "📦 Control de Stock y Documentación":
                             "CLIENTE": st.column_config.TextColumn("Cliente"),
                             col_canal_native: st.column_config.TextColumn("Canal de Venta"),
                             col_vendedor_native: st.column_config.TextColumn("Vendedor"),
-                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn("Días Pedido ➔ Entrega", format="%d"),
-                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn("Días Papeles Disp. ➔ Entrega", format="%d")
+                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn(
+                                "Días Pedido ➔ Entrega", 
+                                format="%d", 
+                                help="Días totales transcurridos desde que se pidió la unidad hasta la fecha de entrega pactada con el cliente."
+                            ),
+                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn(
+                                "Días Papeles Disp. ➔ Entrega", 
+                                format="%d", 
+                                help="Días de demora desde que los papeles estuvieron disponibles en la concesionaria hasta el día de la entrega."
+                            )
                         }
                     )
                 else:
                     st.info("No hay vehículos con fecha de entrega planificada.")
                     
-            # --- ESCENARIO B: 🚨 SIN FECHA DE ENTREGA ---
+                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA CON FECHA ---
+                st.markdown("---")
+                st.markdown("### 📊 Tendencia de Tiempos Promedio (Unidades con Fecha)")
+                
+                if not df_tabla_doc_act.empty:
+                    df_tabla_doc_act["AÑO_MES_X"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
+                    df_graf_base = df_tabla_doc_act.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
+                    
+                    g_line1, g_line2 = st.columns(2)
+                    
+                    with g_line1:
+                        # Cuadro interactivo de información explicativa del grafico con el signo ?
+                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
+                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra cuándo se cerró el ciclo logístico).\n\n"
+                                       "**EJE Y:** Promedio de días transcurridos. Evalúa la velocidad global del embudo comercial.")
+                        
+                        df_g1 = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        if not df_g1.empty:
+                            st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        else:
+                            st.caption("Insuficientes datos cronológicos.")
+                            
+                    with g_line2:
+                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Entrega)", expanded=False):
+                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra la eficiencia del mes de cierre).\n\n"
+                                       "**EJE Y:** Promedio de días de retraso. Evalúa la rapidez administrativa para entregar tras patentar.")
+                        
+                        df_g2 = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
+                        if not df_g2.empty:
+                            st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        else:
+                            st.caption("Insuficientes datos cronológicos.")
+                else:
+                    st.info("Sin históricos para graficar.")
+
+            # -----------------------------------------------------
+            # ESCENARIO B: 🚨 SIN FECHA DE ENTREGA SELECTOR ACTIVO
+            # -----------------------------------------------------
             else:
                 st.markdown(f"##### 📋 Tabla de Alertas y Seguimiento — `{st.session_state.filtro_doc_segmento}`")
-                if not df_sin_fecha_calc.empty:
-                    cols_b_mostrar = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"]
-                    cols_reales_b = [c for c in cols_b_mostrar if c in df_sin_fecha_calc.columns]
+                
+                df_tabla_doc_pend = df_sin_fecha.copy()
+                
+                if not df_tabla_doc_pend.empty:
+                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days
+                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = df_tabla_doc_pend["DIF_PEDIDO_HOY"].fillna(0).astype(int)
+                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = df_tabla_doc_pend["DIF_PAPELES_HOY"].fillna(0).astype(int)
+                else:
+                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
+                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
+                    
+                cols_b_mostrar = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"]
+                cols_reales_b = [c for c in cols_b_mostrar if c in df_tabla_doc_pend.columns]
+                df_final_render_b = df_tabla_doc_pend[cols_reales_values_b := cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_values_b].columns.duplicated()]
+                
+                if not df_final_render_b.empty:
                     st.dataframe(
-                        df_sin_fecha_calc[cols_reales_b].sort_values(by="DIF_PEDIDO_HOY", ascending=False),
+                        df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False),
                         use_container_width=True,
                         hide_index=True,
                         column_config={
@@ -525,81 +589,79 @@ elif opcion == "📦 Control de Stock y Documentación":
                             "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
                             col_canal_native: st.column_config.TextColumn("Canal de Venta"),
                             col_vendedor_native: st.column_config.TextColumn("Vendedor"),
-                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
-                            "DIF_PAPELES_HOY": st.column_config.NumberColumn("Días Papeles Disp. ➔ Hoy", format="%d")
+                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn(
+                                "Días Pedido ➔ Hoy", 
+                                format="%d", 
+                                help="Días acumulados desde la fecha de pedido de la unidad hasta el día de hoy, sin haber coordinado aún la entrega."
+                            ),
+                            "DIF_PAPELES_HOY": st.column_config.NumberColumn(
+                                "Días Papeles Disp. ➔ Hoy", 
+                                format="%d", 
+                                help="Días que lleva el vehículo con los papeles listos y disponibles en la empresa hasta el día de hoy sin agendar entrega."
+                            )
                         }
                     )
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
+                    
+                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA SIN FECHA ---
+                st.markdown("---")
+                st.markdown("### 📊 Tendencia de Envejecimiento (Unidades Pendientes Sin Fecha)")
+                
+                if not df_tabla_doc_pend.empty:
+                    g_line3, g_line4 = st.columns(2)
+                    
+                    with g_line3:
+                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Hoy)", expanded=False):
+                            st.caption("**EJE X:** Año-Mes de la Fecha de Pedido (Muestra cuándo nació originalmente la orden bloqueada).\n\n"
+                                       "**EJE Y:** Promedio de días acumulados en espera. Picos altos en meses pasados delatan deudas históricas.")
+                        
+                        df_tabla_doc_pend["AÑO_MES_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.strftime('%Y-%m')
+                        df_g3 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PEDIDO"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
+                        if not df_g3.empty:
+                            st.line_chart(df_g3.set_index("AÑO_MES_PEDIDO")["Promedio Días"], use_container_width=True)
+                        else:
+                            st.caption("Faltan registros con fecha de pedido.")
+                            
+                    with g_line4:
+                        with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Hoy)", expanded=False):
+                            st.caption("**EJE X:** Año-Mes de la Fecha de Disponibilidad de Papeles (Registra cuándo liberó el trámite gestoría).\n\n"
+                                       "**EJE Y:** Promedio de días parados sin entregar. Ideal para detectar fallas de coordinación comercial.")
+                        
+                        df_tabla_doc_pend["AÑO_MES_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.strftime('%Y-%m')
+                        df_g4 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PAPELES"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
+                        if not df_g4.empty:
+                            st.line_chart(df_g4.set_index("AÑO_MES_PAPELES")["Promedio Días"], use_container_width=True)
+                        else:
+                            st.caption("Faltan registros con papeles disponibles asignados.")
+                else:
+                    st.info("Sin vehículos pendientes para calcular tendencias gráficas.")
 
-            # ==============================================================================
-            # 📊 SECCIÓN UNIFICADA Y PERMANENTE DE GRÁFICOS DE LÍNEAS (ORDENADOS DE ENE A DIC)
-            # ==============================================================================
-            st.markdown("---")
-            st.markdown("### 📈 Históricos y Tendencias de Tiempos Promedio")
-            
-            # Recolectar todos los años de las planillas
-            años_totales = set()
-            if not df_con_fecha_calc.empty: años_totales.update(df_con_fecha_calc["AÑO_FILTRO"].dropna().unique().astype(int))
-            if not df_sin_fecha_calc.empty: años_totales.update(df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"].dropna().unique().astype(int))
-            
-            opciones_periodo = ["Todos los años"] + [str(a) for a in sorted(años_totales)]
-            default_idx_unificado = opciones_periodo.index("2026") if "2026" in opciones_periodo else 0
-            
-            col_u1, col_u2 = st.columns([1, 3])
-            with col_u1:
-                año_unificado_sel = st.selectbox("📅 Seleccionar Año de Análisis:", opciones_periodo, index=default_idx_unificado, key="sel_año_unificado_graficos")
-            
-            # Forzar índices cronológicos fijos en el Eje X (Evita bloques azules macizos)
-            meses_indices = range(1, 13)
-            nombres_meses_es = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-            
-            # --- FILTRADO Y PROCESAMIENTO CON FECHA ---
-            if año_unificado_sel == "Todos los años":
-                df_g_con = df_con_fecha_calc.copy() if not df_con_fecha_calc.empty else pd.DataFrame()
-            else:
-                df_g_con = df_con_fecha_calc[df_con_fecha_calc["AÑO_FILTRO"] == int(año_unificado_sel)].copy() if not df_con_fecha_calc.empty else pd.DataFrame()
-                
-            if not df_g_con.empty:
-                df_g_con["N_MES"] = df_g_con["FECHA_ENTREGA_DT"].dt.month
-                linea1_data = df_g_con.groupby("N_MES")["DIF_PEDIDO_ENTREGA"].mean().reindex(meses_indices)
-                linea2_data = df_g_con.groupby("N_MES")["DIF_PAPELES_ENTREGA"].mean().reindex(meses_indices)
-                linea1_data.index = nombres_meses_es
-                linea2_data.index = nombres_meses_es
-            else:
-                linea1_data = pd.Series(index=nombres_meses_es, dtype=float)
-                linea2_data = pd.Series(index=nombres_meses_es, dtype=float)
 
-            # --- FILTRADO Y PROCESAMIENTO SIN FECHA ---
-            if año_unificado_sel == "Todos los años":
-                df_g_sin = df_sin_fecha_calc.copy() if not df_sin_fecha_calc.empty else pd.DataFrame()
+        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo del módulo general) ---
+        st.markdown("---")
+        st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("##### Dónde están las trabas (Estado Administrativo)")
+            if col_target_admin and not df_sin_fecha.empty:
+                df_g1 = df_sin_fecha.copy()
+                df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
+                    lambda x: next((name for label, kw in estados_clave_doc if kw in x.lower()), "Otros Trámites")
+                )
+                conteo_g1 = df_g1["Resumen Admin"].value_counts()
+                st.bar_chart(conteo_g1, use_container_width=True)
             else:
-                df_g_sin = df_sin_fecha_calc[df_sin_fecha_calc["AÑO_FILTRO_PEDIDO"] == int(año_unificado_sel)].copy() if not df_sin_fecha_calc.empty else pd.DataFrame()
-                
-            if not df_g_sin.empty:
-                df_g_sin["N_MES"] = df_g_sin["FECHA_PEDIDO_UNIDAD_DT"].dt.month
-                linea3_data = df_g_sin.groupby("N_MES")["DIF_PEDIDO_HOY"].mean().reindex(meses_indices)
-                linea3_data.index = nombres_meses_es
+                st.info("Sin datos pendientes.")
+        with g2:
+            st.markdown("##### Estado Físico de lo Pendiente")
+            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
+                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
+                st.bar_chart(conteo_g2, use_container_width=True)
             else:
-                linea3_data = pd.Series(index=nombres_meses_es, dtype=float)
-
-            # --- DESPLIEGUE PARALELO DE LOS 3 GRÁFICOS DE LÍNEAS DE TENDENCIA ---
-            g_col1, g_col2, g_col3 = st.columns(3)
-            
-            with g_col1:
-                st.markdown("##### ⏱️ Speed: Pedido ➔ Entrega")
-                st.caption("Promedio de días totales del ciclo comercial.")
-                st.line_chart(linea1_data, use_container_width=True)
-                
-            with g_col2:
-                st.markdown("##### 📄 Gestoría: Papeles ➔ Entrega")
-                st.caption("Días de demora desde la disponibilidad del trámite.")
-                st.line_chart(linea2_data, use_container_width=True)
-                
-            with g_col3:
-                st.markdown("##### 🚨 Envejecimiento: Bloqueados")
-                st.caption("Días acumulados en espera hasta hoy (Unidades Sin Fecha).")
-                st.line_chart(linea3_data, use_container_width=True)
+                st.info("Sin datos pendientes.")
+    else:
+        st.error("Set de datos vacío.")
 
 elif opcion == "🛠️ Control Mantenimiento":
     st.title("🛠️ Planificación de Taller")
@@ -669,7 +731,7 @@ elif opcion == "🛠️ Control Mantenimiento":
             if st.session_state.filtro_mantenimiento != 'todos': st.success("✅ ¡Nada pendiente!")
             else: st.success("✅ ¡Felicitaciones! No hay mantenimientos atrasados.")
     else:
-        st.sidebar.warning("No se encontraron datos.")
+        st.warning("No se encontraron datos.")
 
 elif opcion == "🗺️ Plano del Salón":
     st.title("🗺️ Distribución del Salón")
