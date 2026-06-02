@@ -113,9 +113,6 @@ df_0km = load_data(URL_0KM, fila_header=0)
 df_usados = load_data(URL_USADOS, fila_header=1)
 
 # --- MEMORIA DE ESTADO ---
-if 'filtro_estado_stock' not in st.session_state: st.session_state.filtro_estado_stock = None
-if 'filtro_estado_admin' not in st.session_state: st.session_state.filtro_estado_admin = None
-if 'filtro_gestion_operativa' not in st.session_state: st.session_state.filtro_gestion_operativa = 'TODOS'
 if 'modo_vista_0km' not in st.session_state: st.session_state.modo_vista_0km = 'mes'
 if 'modo_vista_usados' not in st.session_state: st.session_state.modo_vista_usados = 'mes'
 if 'filtro_mantenimiento' not in st.session_state: st.session_state.filtro_mantenimiento = 'todos'
@@ -255,7 +252,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 if st.session_state[session_key_vista] != 'mes': 
                     st.info("No hay vehículos aquí.")
             
-            # --- SECCIÓN GRÁFICO CON FILTRO INTERNO ---
+            # --- SECCIÓN GRÁFICO ---
             st.markdown("---")
             tipo_unidades = "0KM" if not es_usado else "Usados"
             
@@ -334,32 +331,20 @@ elif opcion == "📦 Control de Stock y Documentación":
         elif "ESTADO ADMINISTRATIVO" in df_raw.columns: col_target_admin = "ESTADO ADMINISTRATIVO"
         elif "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD" in df_raw.columns: col_target_admin = "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD"
 
-        # Estandarizamos y limpiamos la columna ESTADO eliminando los vacíos y espacios
+        # Estandarizamos y limpiamos la columna ESTADO
         df_raw["ESTADO_CLEAN"] = df_raw["ESTADO"].astype(str).str.strip().str.upper()
         df_base_limpia = df_raw[df_raw["ESTADO"].notna() & (df_raw["ESTADO_CLEAN"] != "NAN") & (df_raw["ESTADO_CLEAN"] != "")]
 
-        # Tarjeta 4: Entregados Históricos
+        # Separación Base Metricas
         df_entregados_hist = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] == "ENTREGADO"]
-
-        # Tarjeta 1: Total Stock Real
         df_stock_real = df_base_limpia[df_base_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
-
-        # Tarjeta 2: Con Fecha de Entrega
         df_con_fecha = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].notna()]
-
-        # Universo que NO tiene fecha confirmada asignada
         df_sin_fecha_base = df_stock_real[df_stock_real["FECHA_ENTREGA_DT"].isna()]
 
-        # =========================================================
-        # REFORMA REGLA CRUZADA CORREGIDA PARA TARJETA 3: SIN FECHA
-        # =========================================================
+        # Regla cruzada estricta para Tarjeta 3 (SIN Fecha)
         col_cliente = "CLIENTE" if "CLIENTE" in df_sin_fecha_base.columns else None
-        
         if col_cliente:
-            # Creamos una serie limpia en mayúsculas para realizar exclusiones textuales exactas e inteligentes
             df_sin_fecha_base["CLIENTE_UPPER"] = df_sin_fecha_base[col_cliente].astype(str).str.strip().str.upper()
-            
-            # Filtro estricto sobre columna Cliente: Excluye vacíos, leyendas "NAN" y texto "UNIDAD SIN CLIENTE ASIGNADO"
             mask_tiene_cliente = (
                 df_sin_fecha_base[col_cliente].notna() & 
                 (df_sin_fecha_base["CLIENTE_UPPER"] != "") & 
@@ -367,8 +352,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                 (df_sin_fecha_base["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
             )
             mask_tiene_pedido = df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
-            
-            # Unifica ambas condiciones válidas (Cliente real asignado O Pedido de preparación activo)
             df_sin_fecha = df_sin_fecha_base[mask_tiene_cliente | mask_tiene_pedido]
         else:
             df_sin_fecha = df_sin_fecha_base[df_sin_fecha_base["FECHA_PREPARACION_DT"].notna()]
@@ -378,189 +361,176 @@ elif opcion == "📦 Control de Stock y Documentación":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("🏢 Total Stock Real", len(df_stock_real), help="Unidades vivas cargadas en stock. Excluye vacíos y entregados.")
         kpi2.metric("🚀 Con Fecha de Entrega", len(df_con_fecha), help="Vehículos en stock que poseen fecha confirmada de entrega.")
-        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales asignados o con pedido en espera, sin turno de entrega asignado.")
+        kpi3.metric("🚨 SIN Fecha de Entrega", len(df_sin_fecha), help="Clientes reales en espera sin turno de entrega asignado.")
         kpi4.metric("✅ Entregados Históricos", len(df_entregados_hist), help="Total acumulado histórico de vehículos entregados.")
         
         st.markdown("---")
+
+        # =========================================================
+        # 📂 CONSTRUCCIÓN DE LAS PESTAÑAS ANIDADAS DINÁMICAS
+        # =========================================================
         
-        # --- BLOQUE 2: FILTRO FÍSICO (NIVEL 1) ---
-        st.markdown("#### 🏢 Nivel 1: Filtrar por Estado de Unidad (Físico)")
-        if "ESTADO" in df_stock_real.columns:
-            conteo_fisico = df_stock_real["ESTADO_CLEAN"].value_counts()
-            iconos_stock = {"EN EXHIBICIÓN": "🏢", "EN EXHIBICION": "🏢", "SIN PRE ENTREGA": "🛠️", "CON PRE ENTREGA": "✨", "BLOQUEADO": "🔒", "RESERVADO": "🔖", "DISPONIBLE": "🟢"}
+        # 🏢 PESTAÑAS PRINCIPALES: Estado Físico de Unidad
+        st.markdown("### 🏢 Estado Físico de Unidad")
+        
+        estados_existentes_clean = sorted(df_stock_real["ESTADO_CLEAN"].unique().tolist())
+        titulos_pestañas_fisicas = [f"📋 Todos Real Stock ({len(df_stock_real)})"]
+        
+        # Mapeo estético de nombres de estado
+        mapa_nombres_fisicos = {"EN EXHIBICIÓN": "En Exhibición", "EN EXHIBICION": "En Exhibición", "SIN PRE ENTREGA": "Sin Pre Entrega", "CON PRE ENTREGA": "Con Pre Entrega", "BLOQUEADO": "Bloqueado", "RESERVADO": "Reservado", "DISPONIBLE": "Disponible"}
+        
+        for est in estados_existentes_clean:
+            cant = len(df_stock_real[df_stock_real["ESTADO_CLEAN"] == est])
+            nombre_label = mapa_nombres_fisicos.get(est, est.title())
+            titulos_pestañas_fisicas.append(f"{nombre_label} ({cant})")
             
-            cols_f = st.columns(len(conteo_fisico) + 1)
-            with cols_f[0]:
-                type_t = "primary" if st.session_state.filtro_estado_stock is None else "secondary"
-                if st.button(f"📋 Todos Real Stock ({len(df_stock_real)})", use_container_width=True, key="btn_master_t", type=type_t):
-                    st.session_state.filtro_estado_stock = None
-                    
-            for idx, (est, cant) in enumerate(conteo_fisico.items()):
-                ic = iconos_stock.get(str(est), "🚗")
-                col_dst = cols_f[idx+1] if (idx+1) < len(cols_f) else cols_f[-1]
-                with col_dst:
-                    type_b = "primary" if st.session_state.filtro_estado_stock == est else "secondary"
-                    if st.button(f"{ic} {est.title()} ({cant})", use_container_width=True, key=f"btn_master_f_{idx}", type=type_b):
-                        st.session_state.filtro_estado_stock = est
-
-        df_filtrado_paso1 = df_stock_real.copy()
-        if st.session_state.filtro_estado_stock:
-            df_filtrado_paso1 = df_filtrado_paso1[df_filtrado_paso1["ESTADO_CLEAN"] == st.session_state.filtro_estado_stock]
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- BLOQUE 3: FILTRO DOCUMENTAL (NIVEL 2) ---
-        st.markdown("#### 📄 Nivel 2: Filtrar por Estado de Documentación (Administrativo)")
-        estados_clave = [
-            ("Ok Doc", "✅ Doc", "Ok doc"),
-            ("Atopatentado sin cliente", "⚫ Sin Cliente", "Atopatentado sin"),
-            ("Autopatentado firma 08", "✍️ Firma 08", "firma"),
-            ("En caso legales", "⚖️ Legales", "legales"),
-            ("Entrega al gestor", "📂 Al Gestor", "gestor"),
-            ("Firma titular", "📝 Titular", "titular")
+        tabs_fisicas = st.tabs(titulos_pestañas_fisicas)
+        
+        # Definición estandarizada de estados de documentación para el sub-filtrado
+        estados_clave_doc = [
+            ("Ok Doc", "Ok doc"),
+            ("Atopatentado sin cliente", "Atopatentado sin"),
+            ("Autopatentado firma 08", "firma"),
+            ("En caso legales", "legales"),
+            ("Entrega al gestor", "gestor"),
+            ("Firma titular", "titular")
         ]
-        
-        admin_buttons = [{
-            "label": f"♾️ Cualquier Papel ({len(df_filtrado_paso1)})",
-            "key": "btn_master_doc_reset",
-            "filter_val": None
-        }]
-        
-        if col_target_admin:
-            for label_b, short_name, keyword in estados_clave:
-                cant_doc = len(df_filtrado_paso1[df_filtrado_paso1[col_target_admin].astype(str).str.contains(keyword, case=False, na=False)])
-                if cant_doc > 0:
-                    admin_buttons.append({
-                        "label": f"{short_name} ({cant_doc})",
-                        "key": f"btn_master_doc_{keyword}",
-                        "filter_val": keyword
-                    })
-                    
-        cols_doc_buttons = st.columns(min(len(admin_buttons), 6))
-        for idx, btn_d in enumerate(admin_buttons):
-            col_u = cols_doc_buttons[idx % len(cols_doc_buttons)]
-            with col_u:
-                type_bd = "primary" if st.session_state.filtro_estado_admin == btn_d["filter_val"] else "secondary"
-                if st.button(btn_d["label"], use_container_width=True, key=btn_d["key"], type=type_bd):
-                    st.session_state.filtro_estado_admin = btn_d["filter_val"]
-
-        df_filtrado_paso2 = df_filtrado_paso1.copy()
-        if st.session_state.filtro_estado_admin and col_target_admin:
-            df_filtrado_paso2 = df_filtrado_paso2[df_filtrado_paso2[col_target_admin].astype(str).str.contains(st.session_state.filtro_estado_admin, case=False, na=False)]
-
-        st.markdown("---")
-
-        # --- BLOQUE 4: GESTIÓN OPERATIVA Y ALERTAS (NIVEL 3) ---
-        st.markdown("### 🚦 Nivel 3: Estado de Gestión Operativa y Alertas")
-        
-        # Recalculamos los segmentos operativos dinámicos basándonos en las nuevas exclusiones
-        df_op_con_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].notna()]
-        df_op_sin_fecha = df_filtrado_paso2[df_filtrado_paso2["FECHA_ENTREGA_DT"].isna()]
-        
-        # Filtramos para que las tablas operativas de pendientes sigan estrictamente la nueva regla de clientes corregida
-        if col_cliente:
-            df_op_sin_fecha["CLIENTE_UPPER"] = df_op_sin_fecha[col_cliente].astype(str).str.strip().str.upper()
-            mask_op_cliente = (
-                df_op_sin_fecha[col_cliente].notna() & 
-                (df_op_sin_fecha["CLIENTE_UPPER"] != "") & 
-                (df_op_sin_fecha["CLIENTE_UPPER"] != "NAN") & 
-                (df_op_sin_fecha["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
-            )
-            mask_op_pedido = df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()
-            df_op_pendientes_reales = df_op_sin_fecha[mask_op_cliente | mask_op_pedido]
-        else:
-            df_op_pendientes_reales = df_op_sin_fecha[df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()]
-
-        df_op_alerta_prep = df_op_pendientes_reales[df_op_pendientes_reales["FECHA_PREPARACION_DT"].notna()]
-        df_op_sin_fecha_sin_pedido = df_op_pendientes_reales[df_op_pendientes_reales["FECHA_PREPARACION_DT"].isna()]
-
-        op1, op2, op3 = st.columns(3)
-        
-        with op1:
-            t_op1 = "primary" if st.session_state.filtro_gestion_operativa == 'SIN_FECHA_SIN_PEDIDO' else "secondary"
-            if st.button(f"🚨 Sin Fecha y Sin Pedido ({len(df_op_sin_fecha_sin_pedido)})", use_container_width=True, type=t_op1):
-                st.session_state.filtro_gestion_operativa = 'SIN_FECHA_SIN_PEDIDO'
-        with op2:
-            t_op2 = "primary" if st.session_state.filtro_gestion_operativa == 'ALERTA_PREPARACION' else "secondary"
-            if st.button(f"🛠️ Alerta: En Preparación ({len(df_op_alerta_prep)})", use_container_width=True, type=t_op2):
-                st.session_state.filtro_gestion_operativa = 'ALERTA_PREPARACION'
-        with op3:
-            t_op3 = "primary" if st.session_state.filtro_gestion_operativa == 'CON_FECHA' else "secondary"
-            if st.button(f"🚀 Con Fecha Confirmada ({len(df_op_con_fecha)})", use_container_width=True, type=t_op3):
-                st.session_state.filtro_gestion_operativa = 'CON_FECHA'
-
-        st.markdown("<br>", unsafe_allow_html=True)
 
         hoy_dt = pd.Timestamp.now().normalize()
-        if st.session_state.filtro_gestion_operativa == 'SIN_FECHA_SIN_PEDIDO':
-            df_tabla_final = df_op_sin_fecha_sin_pedido
-            titulo_tabla = "🚨 Clientes Sin Fecha de Entrega y Bloqueados en Administración"
-            ordenar_por = "ANTIGÜEDAD DE STOCK" if "ANTIGÜEDAD DE STOCK" in df_tabla_final.columns else "CLIENTE"
-        elif st.session_state.filtro_gestion_operativa == 'ALERTA_PREPARACION':
-            df_tabla_final = df_op_alerta_prep.copy()
-            df_tabla_final["DIAS_EN_TALLER"] = (hoy_dt - df_tabla_final["FECHA_PREPARACION_DT"]).dt.days
-            
-            def asignar_emoji_alerta(dias):
-                if dias >= 3: return f"🔴 {dias} días"
-                elif dias >= 1: return f"⚠️ {dias} días"
-                return f"🟢 {dias} días"
+
+        # Recorremos cada Pestaña Física Principal
+        for idx_f, tab_f in enumerate(tabs_fisicas):
+            with tab_f:
+                # Segmentamos el DataFrame según la pestaña física seleccionada
+                if idx_f == 0:
+                    df_física_actual = df_stock_real.copy()
+                else:
+                    estado_clean_sel = estados_existentes_clean[idx_f - 1]
+                    df_física_actual = df_stock_real[df_stock_real["ESTADO_CLEAN"] == estado_clean_sel].copy()
                 
-            df_tabla_final["Alerta Tiempo"] = df_tabla_final["DIAS_EN_TALLER"].apply(asignar_emoji_alerta)
-            titulo_tabla = "🛠️ Alerta de Taller: Pedido de preparación emitido por administración sin agenda asignada"
-            ordenar_por = "DIAS_EN_TALLER"
-        else:
-            df_tabla_final = df_op_con_fecha
-            titulo_tabla = "🚀 Agenda Confirmada Planificada para Entrega"
-            ordenar_por = "FECHA_ENTREGA_DT"
+                # 📄 SUB-PESTAÑAS INTERNAS: Estado de Documentación
+                st.markdown("#### 📄 Estado de Documentación")
+                
+                titulos_doc_tabs = [f"♾️ Cualquier Papel ({len(df_física_actual)})"]
+                sub_filtros_validos = [None] # El primero corresponde a "Cualquier Papel"
+                
+                if col_target_admin:
+                    for label_b, keyword in estados_clave_doc:
+                        cant_d = len(df_física_actual[df_física_actual[col_target_admin].astype(str).str.contains(keyword, case=False, na=False)])
+                        if cant_d > 0:
+                            titulos_doc_tabs.append(f"{label_b} ({cant_d})")
+                            sub_filtros_validos.append(keyword)
+                            
+                tabs_documentales = st.tabs(titulos_doc_tabs)
+                
+                # Recorremos cada Sub-Pestaña de Documentación
+                for idx_d, tab_d in enumerate(tabs_documentales):
+                    with tab_d:
+                        # Aplicamos el filtro documental sobre los datos físicos actuales
+                        keyword_actual = sub_filtros_validos[idx_d]
+                        if keyword_actual and col_target_admin:
+                            df_final_celda = df_física_actual[df_física_actual[col_target_admin].astype(str).str.contains(keyword_actual, case=False, na=False)].copy()
+                        else:
+                            df_final_celda = df_física_actual.copy()
+                            
+                        # --- CÁLCULO E INYECCIÓN DE TABLAS OPERATIVAS Y ALERTAS DE TALLER ---
+                        df_op_con_fecha = df_final_celda[df_final_celda["FECHA_ENTREGA_DT"].notna()]
+                        df_op_sin_fecha = df_final_celda[df_final_celda["FECHA_ENTREGA_DT"].isna()]
+                        
+                        if col_cliente:
+                            df_op_sin_fecha["CLIENTE_UPPER"] = df_op_sin_fecha[col_cliente].astype(str).str.strip().str.upper()
+                            mask_op_c = (
+                                df_op_sin_fecha[col_cliente].notna() & 
+                                (df_op_sin_fecha["CLIENTE_UPPER"] != "") & 
+                                (df_op_sin_fecha["CLIENTE_UPPER"] != "NAN") & 
+                                (df_op_sin_fecha["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
+                            )
+                            mask_op_p = df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()
+                            df_op_pendientes = df_op_sin_fecha[mask_op_c | mask_op_p]
+                        else:
+                            df_op_pendientes = df_op_sin_fecha[df_op_sin_fecha["FECHA_PREPARACION_DT"].notna()]
+                            
+                        df_op_alerta_prep = df_op_pendientes[df_op_pendientes["FECHA_PREPARACION_DT"].notna()]
+                        df_op_sin_fecha_sin_pedido = df_op_pendientes[df_op_pendientes["FECHA_PREPARACION_DT"].isna()]
+                        
+                        # Pequeño selector de radio horizontal para cambiar la vista de la tabla de forma compacta dentro de la pestaña
+                        vista_tabla = st.radio(
+                            "Seleccionar segmento operativo a visualizar en la tabla:",
+                            options=[
+                                f"🚨 Sin Fecha y Sin Pedido ({len(df_op_sin_fecha_sin_pedido)})",
+                                f"🛠️ Alerta: En Preparación ({len(df_op_alerta_prep)})",
+                                f"🚀 Con Fecha Confirmada ({len(df_op_con_fecha)})"
+                            ],
+                            horizontal=True,
+                            key=f"radio_op_{idx_f}_{idx_d}"
+                        )
+                        
+                        # Decision de renderizado basada en el Radio Box
+                        if "🚨" in vista_tabla:
+                            df_tabla_render = df_op_sin_fecha_sin_pedido
+                            titulo_seccion_tabla = "Clientes Sin Fecha de Entrega y Bloqueados en Administración"
+                            ordenar_por = "ANTIGÜEDAD DE STOCK" if "ANTIGÜEDAD DE STOCK" in df_tabla_render.columns else "CLIENTE"
+                        elif "🛠️" in vista_tabla:
+                            df_tabla_render = df_op_alerta_prep.copy()
+                            if not df_tabla_render.empty:
+                                df_tabla_render["DIAS_EN_TALLER"] = (hoy_dt - df_tabla_render["FECHA_PREPARACION_DT"]).dt.days
+                                def asignar_emoji(dias):
+                                    if dias >= 3: return f"🔴 {dias} días"
+                                    elif dias >= 1: return f"⚠️ {dias} días"
+                                    return f"🟢 {dias} días"
+                                df_tabla_render["Alerta Tiempo"] = df_tabla_render["DIAS_EN_TALLER"].apply(asignar_emoji)
+                            titulo_seccion_tabla = "Alerta de Taller: Pedidos autorizados listos para preparación"
+                            ordenar_por = "DIAS_EN_TALLER" if not df_tabla_render.empty else "CLIENTE"
+                        else:
+                            df_tabla_render = df_op_con_fecha
+                            titulo_seccion_tabla = "Agenda Confirmada Planificada para Entrega"
+                            ordenar_por = "FECHA_ENTREGA_DT"
+                            
+                        st.markdown(f"##### 📋 {titulo_seccion_tabla} ({len(df_tabla_render)} unidades)")
+                        
+                        cols_mostrar_maestra = [
+                            "VIN", "CLIENTE", "MARCA", "MODELO", "ESTADO", 
+                            col_target_admin, "FECHA_PREPARACION_DT", "Alerta Tiempo", 
+                            "FECHA_ENTREGA_DT", "UBICACION", "ANTIGÜEDAD DE STOCK", "ANTIGUEDAD DE STOCK"
+                        ]
+                        cols_reales_maestra = [c for c in cols_mostrar_maestra if c in df_tabla_render.columns]
+                        df_final_maestro = df_tabla_render[cols_reales_maestra].loc[:, ~df_tabla_render[cols_reales_maestra].columns.duplicated()]
+                        
+                        if not df_final_maestro.empty:
+                            asc = False if ordenar_por == "DIAS_EN_TALLER" else True
+                            st.dataframe(
+                                df_final_maestro.sort_values(ordenar_por, ascending=asc),
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "FECHA_PREPARACION_DT": st.column_config.DateColumn("F. Pedido Preparación", format="DD/MM/YYYY"),
+                                    "FECHA_ENTREGA_DT": st.column_config.DateColumn("F. Entrega", format="DD/MM/YYYY"),
+                                    "Alerta Tiempo": st.column_config.TextColumn("Alerta Taller (Días)"),
+                                    col_target_admin: st.column_config.TextColumn("Estado Administrativo")
+                                }
+                            )
+                        else:
+                            st.success("✅ Todo al día para esta combinación de estados.")
 
-        st.subheader(f"📋 {titulo_tabla} ({len(df_tabla_final)} unidades)")
-        
-        cols_mostrar_maestra = [
-            "VIN", "CLIENTE", "MARCA", "MODELO", "ESTADO", 
-            col_target_admin, "FECHA_PREPARACION_DT", "Alerta Tiempo", 
-            "FECHA_ENTREGA_DT", "UBICACION", "ANTIGÜEDAD DE STOCK", "ANTIGUEDAD DE STOCK"
-        ]
-        cols_reales_maestra = [c for c in cols_mostrar_maestra if c in df_tabla_final.columns]
-        df_render_maestro = df_tabla_final[cols_reales_maestra].loc[:, ~df_tabla_final[cols_reales_maestra].columns.duplicated()]
-
-        if not df_render_maestro.empty:
-            ascendente = False if ordenar_por == "DIAS_EN_TALLER" else True
-            st.dataframe(
-                df_render_maestro.sort_values(ordenar_por, ascending=ascendente),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "FECHA_PREPARACION_DT": st.column_config.DateColumn("F. Pedido Preparación", format="DD/MM/YYYY"),
-                    "FECHA_ENTREGA_DT": st.column_config.DateColumn("F. Entrega", format="DD/MM/YYYY"),
-                    "Alerta Tiempo": st.column_config.TextColumn("Alerta Taller (Días)"),
-                    col_target_admin: st.column_config.TextColumn("Estado Administrativo")
-                }
-            )
-        else:
-            st.success("✅ No se encontraron registros para este segmento con los filtros seleccionados.")
-
-        # --- BLOQUE 5: ANALÍTICA GRÁFICA DE SOPORTE ---
+        # --- ANALÍTICA GRÁFICA DE SOPORTE (Abajo de todo el modulo) ---
         st.markdown("---")
         st.markdown("### 📊 Analítica del Stock Pendiente de Entrega")
-        
         g1, g2 = st.columns(2)
-        
         with g1:
             st.markdown("##### Dónde están las trabas (Estado Administrativo)")
-            if col_target_admin and not df_sin_fecha.empty:
-                df_g1 = df_sin_fecha.copy()
+            if col_target_admin and not df_sin_fecha_base.empty:
+                df_g1 = df_sin_fecha_base.copy()
                 df_g1["Resumen Admin"] = df_g1[col_target_admin].fillna("Sin Especificar").astype(str).apply(
-                    lambda x: next((name for label, name, kw in estados_clave if kw in x.lower()), "Otros Trámites")
+                    lambda x: next((name for label, name, kw in estados_clave_doc if kw in x.lower()), "Otros Trámites")
                 )
                 conteo_g1 = df_g1["Resumen Admin"].value_counts()
                 st.bar_chart(conteo_g1, use_container_width=True)
             else:
                 st.info("Sin datos pendientes.")
-                
         with g2:
             st.markdown("##### Estado Físico de lo Pendiente")
-            if "ESTADO" in df_sin_fecha.columns and not df_sin_fecha.empty:
-                conteo_g2 = df_sin_fecha["ESTADO_CLEAN"].value_counts()
+            if "ESTADO" in df_sin_fecha_base.columns and not df_sin_fecha_base.empty:
+                conteo_g2 = df_sin_fecha_base["ESTADO_CLEAN"].value_counts()
                 st.bar_chart(conteo_g2, use_container_width=True)
             else:
                 st.info("Sin datos pendientes.")
@@ -598,6 +568,7 @@ elif opcion == "🛠️ Control Mantenimiento":
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 if estado_celda in ["OK", "N/A", "SI"]: continue
+                if fecha_vencimiento == hoy: motives_hoy = "Control"
                 if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} días")
                 if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
                 if hoy >= fecha_vencimiento: motifs_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
