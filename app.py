@@ -520,35 +520,41 @@ elif opcion == "📦 Control de Stock y Documentación":
                 else:
                     st.info("No hay vehículos con fecha de entrega planificada.")
                     
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA CON FECHA ---
+                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA CON FECHA (CORREGIDOS MENSUALMENTE) ---
                 st.markdown("---")
                 st.markdown("### 📊 Tendencia de Tiempos Promedio (Unidades con Fecha)")
                 
-                if not df_tabla_doc_act.empty:
-                    df_tabla_doc_act["AÑO_MES_X"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
-                    df_graf_base = df_tabla_doc_act.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
+                if not df_tabla_doc_act.empty and df_tabla_doc_act["FECHA_ENTREGA_DT"].notna().any():
+                    # Truncamos las fechas al inicio de mes para agrupar cronológicamente de forma limpia
+                    df_tabla_doc_act["MES_EJE"] = df_tabla_doc_act["FECHA_ENTREGA_DT"].dt.to_period('M').dt.to_timestamp()
+                    df_graf_base = df_tabla_doc_act.dropna(subset=["MES_EJE"])
+                    
+                    # Definimos el rango completo mes a mes desde el mínimo hasta el máximo detectado
+                    min_date = df_graf_base["MES_EJE"].min()
+                    max_date = df_graf_base["MES_EJE"].max()
+                    rango_completo = pd.date_range(start=min_date, end=max_date, freq='MS')
                     
                     g_line1, g_line2 = st.columns(2)
                     
                     with g_line1:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Entrega)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra cuándo se cerró el ciclo logístico).\n\n"
-                                       "**EJE Y:** Promedio de días transcurridos. Evalúa la velocidad global del embudo comercial.")
+                            st.caption("**EJE X:** Línea de tiempo mensual continua.\n\n"
+                                       "**EJE Y:** Promedio de días transcurridos desde el pedido hasta la entrega coordinada.")
                         
-                        df_g1_line = df_graf_base.groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g1_line.empty:
-                            st.line_chart(df_g1_line.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        df_g1_line = df_graf_base.groupby("MES_EJE")["DIF_PEDIDO_ENTREGA"].mean().reindex(rango_completo)
+                        if not df_g1_line.dropna().empty:
+                            st.line_chart(df_g1_line, use_container_width=True)
                         else:
                             st.caption("Insuficientes datos cronológicos.")
                             
                     with g_line2:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Entrega)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Entrega (Muestra la eficiencia del mes de cierre).\n\n"
-                                       "**EJE Y:** Promedio de días de retraso. Evalúa la rapidez administrativa para entregar tras patentar.")
+                            st.caption("**EJE X:** Línea de tiempo mensual continua.\n\n"
+                                       "**EJE Y:** Promedio de días parados desde que los papeles estuvieron listos hasta la entrega física.")
                         
-                        df_g2_line = df_graf_base.groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
-                        if not df_g2_line.empty:
-                            st.line_chart(df_g2_line.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                        df_g2_line = df_graf_base.groupby("MES_EJE")["DIF_PAPELES_ENTREGA"].mean().reindex(rango_completo)
+                        if not df_g2_line.dropna().empty:
+                            st.line_chart(df_g2_line, use_container_width=True)
                         else:
                             st.caption("Insuficientes datos cronológicos.")
                 else:
@@ -602,7 +608,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
                     
-                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA SIN FECHA ---
+                # --- INYECCIÓN DE LOS 2 GRÁFICOS DE LÍNEA PARA SIN FECHA (CORREGIDOS MENSUALMENTE) ---
                 st.markdown("---")
                 st.markdown("### 📊 Tendencia de Envejecimiento (Unidades Pendientes Sin Fecha)")
                 
@@ -611,25 +617,29 @@ elif opcion == "📦 Control de Stock y Documentación":
                     
                     with g_line3:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Pedido ➔ Hoy)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Pedido (Muestra cuándo nació originalmente la orden bloqueada).\n\n"
-                                       "**EJE Y:** Promedio de días acumulados en espera. Picos altos en meses pasados delatan deudas históricas.")
+                            st.caption("**EJE X:** Línea de tiempo mensual basada en cuándo nació la orden de pedido.\n\n"
+                                       "**EJE Y:** Promedio de días acumulados en espera hasta hoy.")
                         
-                        df_tabla_doc_pend["AÑO_MES_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.strftime('%Y-%m')
-                        df_g3 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PEDIDO"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
-                        if not df_g3.empty:
-                            st.line_chart(df_g3.set_index("AÑO_MES_PEDIDO")["Promedio Días"], use_container_width=True)
+                        if df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].notna().any():
+                            df_tabla_doc_pend["MES_EJE_PEDIDO"] = df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.to_period('M').dt.to_timestamp()
+                            df_g3_base = df_tabla_doc_pend.dropna(subset=["MES_EJE_PEDIDO"])
+                            rango_c3 = pd.date_range(start=df_g3_base["MES_EJE_PEDIDO"].min(), end=df_g3_base["MES_EJE_PEDIDO"].max(), freq='MS')
+                            df_g3 = df_g3_base.groupby("MES_EJE_PEDIDO")["DIF_PEDIDO_HOY"].mean().reindex(rango_c3)
+                            st.line_chart(df_g3, use_container_width=True)
                         else:
                             st.caption("Faltan registros con fecha de pedido.")
                             
                     with g_line4:
                         with st.expander("ℹ️ ¿Qué mide este gráfico? (Papeles Disp. ➔ Hoy)", expanded=False):
-                            st.caption("**EJE X:** Año-Mes de la Fecha de Disponibilidad de Papeles (Registra cuándo liberó el trámite gestoría).\n\n"
-                                       "**EJE Y:** Promedio de días parados sin entregar. Ideal para detectar fallas de coordinación comercial.")
+                            st.caption("**EJE X:** Línea de tiempo mensual basada en cuándo se liberaron los papeles.\n\n"
+                                       "**EJE Y:** Promedio de días parados sin agendar entrega.")
                         
-                        df_tabla_doc_pend["AÑO_MES_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.strftime('%Y-%m')
-                        df_g4 = df_tabla_doc_pend.dropna(subset=["AÑO_MES_PAPELES"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
-                        if not df_g4.empty:
-                            st.line_chart(df_g4.set_index("AÑO_MES_PAPELES")["Promedio Días"], use_container_width=True)
+                        if df_tabla_doc_pend["FECHA_PAPELES_DT"].notna().any():
+                            df_tabla_doc_pend["MES_EJE_PAPELES"] = df_tabla_doc_pend["FECHA_PAPELES_DT"].dt.to_period('M').dt.to_timestamp()
+                            df_g4_base = df_tabla_doc_pend.dropna(subset=["MES_EJE_PAPELES"])
+                            rango_c4 = pd.date_range(start=df_g4_base["MES_EJE_PAPELES"].min(), end=df_g4_base["MES_EJE_PAPELES"].max(), freq='MS')
+                            df_g4 = df_g4_base.groupby("MES_EJE_PAPELES")["DIF_PAPELES_HOY"].mean().reindex(rango_c4)
+                            st.line_chart(df_g4, use_container_width=True)
                         else:
                             st.caption("Faltan registros con papeles disponibles asignados.")
                 else:
