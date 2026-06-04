@@ -42,18 +42,26 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 @st.cache_data(ttl=60)
 def load_data(url, fila_header=0):
     try:
-        # Lee la URL pasando la fila de encabezado correspondiente
+        # Lee la URL pasando la fila de encabezado correspondiente (0 para 0km, 1 para Usados)
         df = pd.read_csv(url, header=fila_header)
         
         # Validamos de entrada que el DataFrame no sea None ni venga vacío
         if df is None or df.empty:
             return pd.DataFrame()
             
-        df.columns = df.columns.str.strip().str.upper()
+        # Si la lectura de Usados (fila_header=1) dejó nombres nulos o corruptos por celdas combinadas, los limpiamos
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        df = df.loc[:, ~df.columns.str.contains('^UNNAMED')]
         
         # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
         df = df.loc[:, ~df.columns.duplicated()]
         
+        # Eliminar registros que sean completamente nulos (filas vacías de arrastre en el Sheets)
+        df = df.dropna(how='all')
+        
+        if df.empty:
+            return df
+            
         # PROCESAMIENTO FECHAS
         col_entrega = None
         posibles_columnas_entrega = [
@@ -104,7 +112,6 @@ def load_data(url, fila_header=0):
         if col_pedido_un:
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_pedido_un], dayfirst=True, errors='coerce')
         else:
-            # Fallback seguro si no existe usa la de facturación o preparación
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_fact] if col_fact in df.columns else df[col_prep], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
@@ -120,7 +127,7 @@ def load_data(url, fila_header=0):
         st.error(f"Error cargando datos desde la fuente: {e}")
         return pd.DataFrame()
 
-# Ejecución limpia de las fuentes
+# Ejecución limpia de las fuentes según sus filas de cabecera reales
 df_0km = load_data(URL_0KM, fila_header=0)
 df_usados = load_data(URL_USADOS, fila_header=1)
 
@@ -606,9 +613,9 @@ elif opcion == "🛠️ Control Mantenimiento":
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 if estado_celda in ["OK", "N/A", "SI"]: continue
-                if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} días")
-                if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} días ({fecha_vencimiento.strftime('%d/%m')})")
-                if hoy >= fecha_vencimiento: motifs_atrasados.append(f"Falta {intervalo} días (Venció: {fecha_vencimiento.strftime('%d/%m')})")
+                if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} dias")
+                if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} dias ({fecha_vencimiento.strftime('%d/%m')})")
+                if hoy >= fecha_vencimiento: motifs_atrasados.append(f"Falta {intervalo} dias (Vencio: {fecha_vencimiento.strftime('%d/%m')})")
             if motivos_hoy:
                 r = row.copy(); r["TAREA"] = ", ".join(motivos_hoy); lista_hoy.append(r)
             if motifs_semana:
@@ -628,9 +635,9 @@ elif opcion == "🛠️ Control Mantenimiento":
         
         df_final = pd.DataFrame()
         if st.session_state.filtro_mantenimiento == 'hoy':
-            df_final = pd.DataFrame(lista_hoy); titulo = "🚗 Vehículos que vencen HOY"
+            df_final = pd.DataFrame(lista_hoy); titulo = "🚗 Vehiculos que vencen HOY"
         elif st.session_state.filtro_mantenimiento == 'semana':
-            df_final = pd.DataFrame(lista_semana); titulo = "🗓️ Planificación Semanal"
+            df_final = pd.DataFrame(lista_semana); titulo = "🗓️ Planificacion Semanal"
         else:
             df_final = pd.DataFrame(lista_atrasados); titulo = "⚠️ Listado de Atrasados / Pendientes"
         
