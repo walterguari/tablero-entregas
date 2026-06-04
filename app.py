@@ -22,10 +22,11 @@ st.markdown("""
         padding: 10px;
     }
     .stMetric {
-        background-color: #f0f4c3;
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #dce775;
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -49,14 +50,14 @@ def load_data(url, fila_header=0):
         if df is None or df.empty:
             return pd.DataFrame()
             
-        # Si la lectura de Usados (fila_header=1) dejó nombres nulos o corruptos por celdas combinadas, los limpiamos
+        # Limpieza estándar de columnas
         df.columns = [str(c).strip().upper() for c in df.columns]
         df = df.loc[:, ~df.columns.str.contains('^UNNAMED')]
         
-        # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
+        # ELIMINAR COLUMNAS DUPLICADAS
         df = df.loc[:, ~df.columns.duplicated()]
         
-        # Eliminar registros que sean completamente nulos (filas vacías de arrastre en el Sheets)
+        # Eliminar filas vacías completas
         df = df.dropna(how='all')
         
         if df.empty:
@@ -112,7 +113,6 @@ def load_data(url, fila_header=0):
         if col_pedido_un:
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_pedido_un], dayfirst=True, errors='coerce')
         else:
-            # Fallback seguro si no existe usa la de facturación o preparación
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_fact] if col_fact in df.columns else df[col_prep], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
@@ -128,7 +128,7 @@ def load_data(url, fila_header=0):
         st.error(f"Error cargando datos desde la fuente: {e}")
         return pd.DataFrame()
 
-# Ejecución limpia de las fuentes según sus filas de cabecera reales
+# Ejecución limpia de las fuentes (Fila 0 para 0KM, Fila 1 para Usados)
 df_0km = load_data(URL_0KM, fila_header=0)
 df_usados = load_data(URL_USADOS, fila_header=1)
 
@@ -160,16 +160,34 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# FUNCIÓN AGENDA EN BI-VISTAS (COMPARTIDA)
+# FUNCIÓN AGENDA EN BI-VISTAS (COMPARTIDA CON CONTROLES AVANZADOS ARRIBA)
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
     st.title(titulo_seccion)
-    if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
-        años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
-        if años:
+    
+    if not df_target.empty:
+        hoy = datetime.date.today()
+        
+        # --- BLOQUE DE INDICADORES EN TARJETAS SUPERIORES ---
+        if "FECHA_ENTREGA_DT" in df_target.columns:
+            total_entregados = len(df_target[df_target["FECHA_ENTREGA_DT"].dt.date < hoy])
+            total_programados = len(df_target[df_target["FECHA_ENTREGA_DT"].dt.date >= hoy])
+            total_sin_fecha = len(df_target[df_target["FECHA_ENTREGA_DT"].isna()])
+        else:
+            total_entregados, total_programados, total_sin_fecha = 0, 0, 0
+            
+        st.markdown("### 📊 Indicadores Operativos de Entregas")
+        kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+        kpi_col1.metric("✅ Entregados (Historial)", total_entregados, help="Unidades entregadas acumuladas en el sistema.")
+        kpi_col2.metric("🚀 Turnos Programados", total_programados, help="Vehículos con turnos agendados desde hoy a futuro.")
+        kpi_col3.metric("🚨 Operaciones Sin Fecha", total_sin_fecha, help="Clientes asignados en espera de coordinación de entrega.")
+        st.markdown("---")
+        
+        # --- FILTROS DE NAVEGACIÓN SECUNDARIA ---
+        if "FECHA_ENTREGA_DT" in df_target.columns and df_target["AÑO_ENTREGA"].notna().any():
+            años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
             df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
             
-            hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
             programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
             
@@ -178,9 +196,9 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
             type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
             type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
 
-            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
+            if c1.button(f"✅ Ya Entregados Año ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'entregados'
-            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
+            if c2.button(f"🚀 Programados Año ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'programados'
             if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'mes'
@@ -279,18 +297,18 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
             else:
                 st.info("No hay datos disponibles para el gráfico.")
         else:
-            st.sidebar.warning("No se encontraron años.")
+            st.sidebar.warning("No se encontraron años cronológicos.")
     else:
         st.error("Set de datos vacío o con errores.")
 
 # ==========================================
-# DESPLIEGUE SECCIONES DEL MENÚ
+# CONTROL DE ENTRADAS DEL MENÚ PRINCIPAL
 # ==========================================
 if opcion == "📅 Planificación Entregas 0KM":
     render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usado=False)
 
 elif opcion == "🚗 Agenda de Usados":
-    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", es_usado=True)
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados (Hoja: Ciel)", es_usado=True)
 
 elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
@@ -530,13 +548,13 @@ elif opcion == "📦 Control de Stock y Documentación":
             g_line1, g_line2 = st.columns(2)
 
             if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
-                df_g_con = df_con_fecha.copy()
-                if not df_g_con.empty:
-                    df_g_con = df_g_con.dropna(subset=["FECHA_ENTREGA_DT"])
-                    df_g_con["DIF_PEDIDO_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
-                    df_g_con["DIF_PAPELES_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PAPELES_DT"]).dt.days
-                    df_g_con["AÑO_MES_X"] = df_g_con["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
-                    df_graf_base = df_g_con.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
+                df_con_fecha = df_con_fecha.copy()
+                if not df_con_fecha.empty:
+                    df_con_fecha = df_con_fecha.dropna(subset=["FECHA_ENTREGA_DT"])
+                    df_con_fecha["DIF_PEDIDO_ENTREGA"] = (df_con_fecha["FECHA_ENTREGA_DT"] - df_con_fecha["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                    df_con_fecha["DIF_PAPELES_ENTREGA"] = (df_con_fecha["FECHA_ENTREGA_DT"] - df_con_fecha["FECHA_PAPELES_DT"]).dt.days
+                    df_con_fecha["AÑO_MES_X"] = df_con_fecha["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
+                    df_graf_base = df_con_fecha.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
                     
                     with g_line1:
                         st.markdown("##### Gráfico 1: Promedio Días Pedido ➔ Entrega")
