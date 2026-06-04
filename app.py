@@ -150,25 +150,14 @@ def render_agenda(df_target, session_key_vista, titulo_seccion):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
         
-        # --- BLOQUE METRICAS SUPERIORES (ENTREGAS DESDE HOY INCLUSIVE) ---
-        hoy = datetime.date.today()
-        
-        total_ya_entregados = len(df_target[(df_target["FECHA_ENTREGA_DT"].dt.date < hoy)])
-        total_programados = len(df_target[(df_target["FECHA_ENTREGA_DT"].dt.date >= hoy)])
-        total_sin_fecha = len(df_target[(df_target["FECHA_ENTREGA_DT"].isna())])
-        
-        st.markdown("### 📊 Indicadores Operativos de Entregas")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("✅ Ya Entregados (Historial)", total_ya_entregados, help="Vehículos con fecha de entrega completada (anterior a hoy).")
-        m2.metric("🚀 Programados (Hoy en adelante)", total_programados, help="Entregas agendadas desde el día de hoy en adelante.")
-        m3.metric("🚨 Sin Fecha Planificada", total_sin_fecha, help="Unidades en el sistema que no poseen fecha cargada en el planificador.")
-        st.markdown("---")
+        # --- SE ELIMINÓ EL BLOQUE DE TARJETAS KPI SUPERIORES DESDE AQUÍ ---
         
         años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
         if años:
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
             df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
             
+            hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
             programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
             
@@ -590,7 +579,7 @@ elif opcion == "🛠️ Control Mantenimiento":
                 fecha_vencimiento = fecha_arribo + timedelta(days=intervalo)
                 estado_celda = str(row[columna]).strip().upper()
                 if estado_celda in ["OK", "N/A", "SI"]: continue
-                if fecha_vencimiento == hoy: motivos_hoy.append(f"Control {intervalo} dias")
+                if fecha_vencimiento == hoy: motifs_hoy.append(f"Control {intervalo} dias")
                 if inicio_semana <= fecha_vencimiento <= fin_semana: motifs_semana.append(f"Control {intervalo} dias ({fecha_vencimiento.strftime('%d/%m')})")
                 if hoy >= fecha_vencimiento: motifs_atrasados.append(f"Falta {intervalo} dias (Vencio: {fecha_vencimiento.strftime('%d/%m')})")
             if motivos_hoy: r = row.copy(); r["TAREA"] = ", ".join(motivos_hoy); lista_hoy.append(r)
