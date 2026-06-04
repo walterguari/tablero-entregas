@@ -42,21 +42,14 @@ URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?f
 @st.cache_data(ttl=60)
 def load_data(url, fila_header=0):
     try:
-        # Lee la URL pasando la fila de encabezado correspondiente (0 para 0km, 1 para Usados)
         df = pd.read_csv(url, header=fila_header)
         
-        # Validamos de entrada que el DataFrame no sea None ni venga vacío
         if df is None or df.empty:
             return pd.DataFrame()
             
-        # Si la lectura de Usados (fila_header=1) dejó nombres nulos o corruptos por celdas combinadas, los limpiamos
         df.columns = [str(c).strip().upper() for c in df.columns]
         df = df.loc[:, ~df.columns.str.contains('^UNNAMED')]
-        
-        # ELIMINAR COLUMNAS DUPLICADAS (Evita el ValueError de PyArrow)
         df = df.loc[:, ~df.columns.duplicated()]
-        
-        # Eliminar registros que sean completamente nulos (filas vacías de arrastre en el Sheets)
         df = df.dropna(how='all')
         
         if df.empty:
@@ -65,6 +58,7 @@ def load_data(url, fila_header=0):
         # PROCESAMIENTO FECHAS
         col_entrega = None
         posibles_columnas_entrega = [
+            lambda c: "CONTACTO CON EL CLIENTE" in c,
             lambda c: "CONFIRMACI" in c and "ENTREGA" in c,
             lambda c: "FECHA" in c and "ENTREGA" in c,
             lambda c: "FECHA" in c and "TURNO" in c,
@@ -112,7 +106,6 @@ def load_data(url, fila_header=0):
         if col_pedido_un:
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_pedido_un], dayfirst=True, errors='coerce')
         else:
-            # Fallback seguro si no existe usa la de facturación o preparación
             df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_fact] if col_fact in df.columns else df[col_prep], dayfirst=True, errors='coerce')
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
@@ -164,12 +157,27 @@ st.sidebar.markdown("---")
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
+        
+        # --- BLOQUE METRICAS SUPERIORES (ENTREGAS DESDE HOY INCLUSIVE) ---
+        hoy = datetime.date.today()
+        
+        # Filtrar el universo total de este dataset (0km o Usados) basándose en HOY inclusive
+        total_ya_entregados = len(df_target[(df_target["FECHA_ENTREGA_DT"].dt.date < hoy)])
+        total_programados = len(df_target[(df_target["FECHA_ENTREGA_DT"].dt.date >= hoy)])
+        total_sin_fecha = len(df_target[(df_target["FECHA_ENTREGA_DT"].isna())])
+        
+        st.markdown("### 📊 Indicadores Operativos de Entregas")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("✅ Ya Entregados (Historial)", total_ya_entregados, help="Vehículos con fecha de entrega completada (anterior a hoy).")
+        m2.metric("🚀 Programados (Hoy en adelante)", total_programados, help="Entregas agendadas desde el día de hoy en adelante.")
+        m3.metric("🚨 Sin Fecha Planificada", total_sin_fecha, help="Unidades en el sistema que no poseen fecha cargada en el planificador.")
+        st.markdown("---")
+        
         años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
         if años:
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
             df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
             
-            hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
             programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
             
@@ -178,9 +186,9 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
             type_prog = "primary" if st.session_state[session_key_vista] == 'programados' else "secondary"
             type_mes = "primary" if st.session_state[session_key_vista] == 'mes' else "secondary"
 
-            if c1.button(f"✅ Ya Entregados ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
+            if c1.button(f"✅ Ya Entregados Año ({len(entregados)})", use_container_width=True, type=type_ent, key=f"btn_ent_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'entregados'
-            if c2.button(f"🚀 Programados ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
+            if c2.button(f"🚀 Programados Año ({len(programados)})", use_container_width=True, type=type_prog, key=f"btn_prog_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'programados'
             if c3.button("📅 Filtrar por Mes / Día", use_container_width=True, type=type_mes, key=f"btn_mes_{session_key_vista}"):
                 st.session_state[session_key_vista] = 'mes'
@@ -222,6 +230,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usado=False):
                 config_columnas = {}
                 
                 if es_usado:
+                    # Mapeo dinámico para la estructura que inicia en la fila 2 de Usados
                     cols_agenda = ["FECHA_ENTREGA_DT", "HORA", "CLIENTE", "ESTADO DEL TRAMITE", "TIPO DE UNIDAD", "ESTADO DE UNIDAD", "MARCA", "MODELO", "DOMINIO", "TELEFONO_CLEAN", "VENDEDOR (BOLETO)"]
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Confirmada de Entrega", format="DD/MM/YYYY"),
@@ -290,7 +299,7 @@ if opcion == "📅 Planificación Entregas 0KM":
     render_agenda(df_0km, 'modo_vista_0km', "📅 Agenda de Entregas 0KM", es_usado=False)
 
 elif opcion == "🚗 Agenda de Usados":
-    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados", es_usado=True)
+    render_agenda(df_usados, 'modo_vista_usados', "🚗 Agenda de Entregas Usados (Hoja: Ciel)", es_usado=True)
 
 elif opcion == "📦 Control de Stock y Documentación":
     st.title("📦 Panel Estratégico: Stock & Documentación 0KM")
