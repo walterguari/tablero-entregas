@@ -30,7 +30,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CREDENCIALES Y LINKS DE FUENTES ---
+# --- CARGA DE DATOS ---
 SHEET_ID_0KM = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
 GID_0KM = "1504374770"
 URL_0KM = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_0KM}/export?format=csv&gid={GID_0KM}"
@@ -55,10 +55,9 @@ def load_data(url, fila_header=0, es_usados=False):
         if df.empty:
             return df
             
-        # PROCESAMIENTO DE FECHAS (DIFERENCIADO POR TIPO DE PLANILLA)
+        # PROCESAMIENTO DE FECHAS
         col_entrega = None
         if es_usados:
-            # Buscar columna exacta de entrega para Usados
             col_entrega = next((c for c in df.columns if "FECHA CONFIRMADA DE ENTREGA" in c), None)
         else:
             posibles_columnas_entrega = [
@@ -83,7 +82,6 @@ def load_data(url, fila_header=0, es_usados=False):
             df["MES_ENTREGA"] = "Sin Fecha"
             df["N_MES_ENTREGA"] = 0
         
-        # PROCESAMIENTO ADICIONAL SOLO PARA 0KM
         if not es_usados:
             col_arribo = next((c for c in df.columns if "ARRIBO" in c), None)
             if col_arribo:
@@ -110,7 +108,6 @@ def load_data(url, fila_header=0, es_usados=False):
             else:
                 df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_fact] if col_fact in df.columns else df[col_prep], dayfirst=True, errors='coerce')
 
-        # NORMALIZACIÓN DE TELÉFONO Y CORREO (COMÚN)
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: 
             df["TELEFONO_CLEAN"] = df[col_tel]
@@ -124,7 +121,7 @@ def load_data(url, fila_header=0, es_usados=False):
         st.error(f"Error cargando datos desde la fuente: {e}")
         return pd.DataFrame()
 
-# Carga limpia de ambas planillas (Usados arranca en Fila 2, por ende header=1)
+# Carga limpia de fuentes
 df_0km = load_data(URL_0KM, fila_header=0, es_usados=False)
 df_usados = load_data(URL_USADOS, fila_header=1, es_usados=True)
 
@@ -156,17 +153,17 @@ opcion = st.sidebar.radio("Ir a:", [
 ])
 st.sidebar.markdown("---")
 
-# FUNCIÓN AGENDA EN BI-VISTAS (SOPORTA 0KM Y USADOS)
+# FUNCIÓN AGENDA EN BI-VISTAS
 def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False):
     st.title(titulo_seccion)
     if not df_target.empty and "FECHA_ENTREGA_DT" in df_target.columns:
         
+        hoy = datetime.date.today()
         años = sorted(df_target["AÑO_ENTREGA"].dropna().unique().astype(int))
         if años:
             año_sel = st.sidebar.selectbox("Seleccionar Año", options=años, index=len(años)-1, key=f"sel_año_{session_key_vista}")
             df_año = df_target[df_target["AÑO_ENTREGA"] == año_sel]
             
-            hoy = datetime.date.today()
             entregados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date < hoy]
             programados = df_año[df_año["FECHA_ENTREGA_DT"].dt.date >= hoy]
             
@@ -218,7 +215,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                 st.subheader(f"📋 {titulo}")
                 
                 if es_usados:
-                    # Configuración Estricta de Columnas Solicitadas para Usados
                     cols_agenda = ["FECHA_ENTREGA_DT", "HORA DE ENTREGA", "CLIENTE", "TELEFONO_CLEAN", "ESTADO DE LA UNIDAD", "MARCA", "DOMINIO", "MODELO", "VENDEDOR"]
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
@@ -228,7 +224,6 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                         "DOMINIO": st.column_config.TextColumn("Dominio/Patente")
                     }
                 else:
-                    # Configuración Clásica de 0KM
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
                     if col_admin: cols_agenda.append(col_admin)
@@ -241,10 +236,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                 
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
-                
-                # Criterio de orden: si existe la hora u otra columna nativa
-                col_orden = cols_reales[0] if cols_reales else "CLIENTE"
-                st.dataframe(df_render.sort_values(col_orden), use_container_width=True, hide_index=True, column_config=config_columnas)
+                st.dataframe(df_render.sort_values(cols_reales[0] if cols_reales else "CLIENTE"), use_container_width=True, hide_index=True, column_config=config_columnas)
             else:
                 if st.session_state[session_key_vista] != 'mes': st.info("No hay vehículos aquí.")
             
@@ -276,7 +268,7 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
         else:
             st.sidebar.warning("No se encontraron años.")
     else:
-        st.error("Set de datos vacío o con errores de lectura.")
+        st.error("Set de datos vacío o con errores.")
 
 # ==========================================
 # DESPLIEGUE SECCIONES DEL MENÚ
@@ -292,7 +284,6 @@ elif opcion == "📦 Control de Stock y Documentación":
     df_raw = df_0km.copy()
     
     if not df_raw.empty:
-        # --- FILTROS SIDEBAR ---
         st.sidebar.header("Filtros Generales")
         if "MARCA" in df_raw.columns:
             marcas_sel = st.sidebar.multiselect("Filtrar Marca", df_raw["MARCA"].unique(), default=df_raw["MARCA"].unique())
@@ -399,7 +390,12 @@ elif opcion == "📦 Control de Stock y Documentación":
             else:
                 st.success("✅ Todo al día para esta combinación de estados en el sistema.")
 
-        tab_sub_fisico, tab_sub_documental = st.tabs(["🏢 Estado Físico de Unidad", "📄 Estado de Documentación"])
+        # --- DEFINICIÓN DE LAS TRES SUB-PESTAÑAS (TENDENCIAS INCLUIDA AQUÍ) ---
+        tab_sub_fisico, tab_sub_documental, tab_sub_tendencias = st.tabs([
+            "🏢 Estado Físico de Unidad", 
+            "📄 Estado de Documentación", 
+            "📈 Tendencia de Tiempos"
+        ])
 
         with tab_sub_fisico:
             if "ESTADO" in df_stock_real.columns:
@@ -502,35 +498,38 @@ elif opcion == "📦 Control de Stock y Documentación":
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
 
-        # --- SECCIÓN TENDENCIAS ---
-        st.markdown("---")
-        st.markdown("### 📈 Tendencia de Tiempos Promedio")
-        
-        col_g_btn1, col_g_btn2 = st.columns(2)
-        type_g1 = "primary" if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega' else "secondary"
-        type_g2 = "primary" if st.session_state.filtro_grafico_segmento == '🚨 Vista: SIN Fecha de Entrega' else "secondary"
-        
-        with col_g_btn1:
-                if st.button("🚀 Vista: Con Fecha de Entrega", use_container_width=True, type=type_g1, key="btn_graf_con_fecha"):
+        # --- SUB-PESTAÑA C: TENDENCIA DE TIEMPOS PROMEDIO (MUDADA AQUÍ) ---
+        with tab_sub_tendencias:
+            st.markdown("### 📈 Analítica Estratégica de Tiempos Promedio")
+            
+            col_g_btn1, col_g_btn2 = st.columns(2)
+            type_g1 = "primary" if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega' else "secondary"
+            type_g2 = "primary" if st.session_state.filtro_grafico_segmento == '🚨 Vista: SIN Fecha de Entrega' else "secondary"
+            
+            with col_g_btn1:
+                if st.button("🚀 Vista Analítica: Con Fecha de Entrega", use_container_width=True, type=type_g1, key="btn_graf_con_fecha"):
                     st.session_state.filtro_grafico_segmento = '🚀 Vista: Con Fecha de Entrega'
-        with col_g_btn2:
-                if st.button("🚨 Vista: SIN Fecha de Entrega", use_container_width=True, type=type_g2, key="btn_graf_sin_fecha"):
+            with col_g_btn2:
+                if st.button("🚨 Vista Analítica: SIN Fecha de Entrega", use_container_width=True, type=type_g2, key="btn_graf_sin_fecha"):
                     st.session_state.filtro_grafico_segmento = '🚨 Vista: SIN Fecha de Entrega'
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        g_line1, g_line2 = st.columns(2)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            g_line1, g_line2 = st.columns(2)
+            hoy_dt = pd.Timestamp.now().normalize()
+            col_vendedor_native = "VENDEDOR" if "VENDEDOR" in df_stock_real.columns else ("VENDEDOR (BOLETO)" if "VENDEDOR (BOLETO)" in df_stock_real.columns else "VENDEDOR")
+            col_canal_native = "CANAL DE VENTA" if "CANAL DE VENTA" in df_stock_real.columns else "CANAL DE VENTA"
 
-        if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
-                df_con_fecha = df_con_fecha.copy()
-                if not df_con_fecha.empty:
-                    df_con_fecha = df_con_fecha.dropna(subset=["FECHA_ENTREGA_DT"])
-                    df_con_fecha["DIF_PEDIDO_ENTREGA"] = (df_con_fecha["FECHA_ENTREGA_DT"] - df_con_fecha["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
-                    df_con_fecha["DIF_PAPELES_ENTREGA"] = (df_con_fecha["FECHA_ENTREGA_DT"] - df_con_fecha["FECHA_PAPELES_DT"]).dt.days
-                    df_con_fecha["AÑO_MES_X"] = df_con_fecha["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
-                    df_graf_base = df_con_fecha.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
+            if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
+                df_g_con = df_con_fecha.copy()
+                if not df_g_con.empty:
+                    df_g_con = df_g_con.dropna(subset=["FECHA_ENTREGA_DT"])
+                    df_g_con["DIF_PEDIDO_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                    df_g_con["DIF_PAPELES_ENTREGA"] = (df_g_con["FECHA_ENTREGA_DT"] - df_g_con["FECHA_PAPELES_DT"]).dt.days
+                    df_g_con["AÑO_MES_X"] = df_g_con["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
+                    df_graf_base = df_g_con.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
                     
                     with g_line1:
-                        st.markdown("##### Gráfico 1: Promedio Días Pedido ➔ Entrega")
+                        st.markdown("##### Promedio Días Pedido ➔ Entrega")
                         df_g1 = df_graf_base.dropna(subset=["DIF_PEDIDO_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
                         if not df_g1.empty:
                             st.bar_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
@@ -538,7 +537,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                             st.caption("Faltan datos cronológicos.")
                             
                     with g_line2:
-                        st.markdown("##### Gráfico 2: Promedio Días Papeles Disp. ➔ Entrega")
+                        st.markdown("##### Promedio Días Papeles Disp. ➔ Entrega")
                         df_g2 = df_graf_base.dropna(subset=["DIF_PAPELES_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
                         if not df_g2.empty:
                             st.bar_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
@@ -546,14 +545,14 @@ elif opcion == "📦 Control de Stock y Documentación":
                             st.caption("Faltan datos cronológicos.")
                 else:
                     st.info("Sin registros con fecha de entrega para calcular tendencias.")
-        else:
+            else:
                 df_g_pend = df_sin_fecha.copy()
                 if not df_g_pend.empty:
                     df_g_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_g_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
                     df_g_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_g_pend["FECHA_PAPELES_DT"]).dt.days
                     
                     with g_line1:
-                        st.markdown("##### Gráfico 3: Promedio Días Pedido ➔ Hoy (Sin Entrega)")
+                        st.markdown("##### Promedio Días Pedido ➔ Hoy (Sin Entrega)")
                         df_g_pend["AÑO_MES_PEDIDO"] = df_g_pend["FECHA_PEDIDO_UNIDAD_DT"].dt.strftime('%Y-%m')
                         df_g3 = df_g_pend.dropna(subset=["AÑO_MES_PEDIDO", "DIF_PEDIDO_HOY"]).groupby("AÑO_MES_PEDIDO")["DIF_PEDIDO_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PEDIDO")
                         if not df_g3.empty:
@@ -562,7 +561,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                             st.caption("Faltan registros con fecha de pedido.")
                             
                     with g_line2:
-                        st.markdown("##### Gráfico 4: Promedio Días Papeles Disp. ➔ Hoy (Sin Entrega)")
+                        st.markdown("##### Promedio Días Papeles Disp. ➔ Hoy (Sin Entrega)")
                         df_g_pend["AÑO_MES_PAPELES"] = df_g_pend["FECHA_PAPELES_DT"].dt.strftime('%Y-%m')
                         df_g4 = df_g_pend.dropna(subset=["AÑO_MES_PAPELES", "DIF_PAPELES_HOY"]).groupby("AÑO_MES_PAPELES")["DIF_PAPELES_HOY"].mean().reset_index(name="Promedio Días").sort_values("AÑO_MES_PAPELES")
                         if not df_g4.empty:
