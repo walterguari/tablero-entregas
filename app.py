@@ -236,21 +236,21 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                     if col_vin_origen: cols_agenda.append(col_vin_origen)
                     cols_agenda.extend(["CANAL DE VENTA", "TELEFONO_CLEAN", "VENDEDOR"])
                     
-                    # AJUSTE DE ANCHOS: Maximizamos el espacio horizontal fijando anchos cortos a datos fijos
+                    # NUEVA CONFIGURACIÓN: Forzamos anchos estrictos en píxeles para compactar todo al 100%
                     config_columnas = {
-                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY", width="small"),
-                        "HS DE ENTREGA AL CLIENTE": st.column_config.TextColumn("Hora", width="small"),
-                        "CLIENTE": st.column_config.TextColumn("Cliente", width="medium"),
-                        "MARCA": st.column_config.TextColumn("Marca", width="small"),
-                        "MODELO": st.column_config.TextColumn("Modelo", width="medium"),
-                        "CANAL DE VENTA": st.column_config.TextColumn("Canal de Venta", width="small"),
-                        "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono", width="small"),
-                        "VENDEDOR": st.column_config.TextColumn("Vendedor", width="small"),
+                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY", width=90),
+                        "HS DE ENTREGA AL CLIENTE": st.column_config.TextColumn("Hora", width=65),
+                        "CLIENTE": st.column_config.TextColumn("Cliente", width=160),
+                        "MARCA": st.column_config.TextColumn("Marca", width=80),
+                        "MODELO": st.column_config.TextColumn("Modelo", width=160),
+                        "CANAL DE VENTA": st.column_config.TextColumn("Canal de Venta", width=110),
+                        "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono", width=100),
+                        "VENDEDOR": st.column_config.TextColumn("Vendedor", width=120),
                     }
                     if col_admin: 
-                        config_columnas[col_admin] = st.column_config.TextColumn("Estado Admin", width="medium")
+                        config_columnas[col_admin] = st.column_config.TextColumn("Estado Admin", width=180)
                     if col_vin_origen:
-                        config_columnas[col_vin_origen] = st.column_config.TextColumn("Número de VIN / Chasis", width="medium")
+                        config_columnas[col_vin_origen] = st.column_config.TextColumn("Número de VIN / Chasis", width=145)
                 
                 cols_reales = [c for c in cols_agenda if c in df_final.columns]
                 df_render = df_final[cols_reales].loc[:, ~df_final[cols_reales].columns.duplicated()]
