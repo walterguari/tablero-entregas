@@ -227,10 +227,13 @@ def render_agenda(df_target, session_key_vista, titulo_seccion, es_usados=False)
                     col_admin = next((c for c in df_target.columns if "ESTADO" in c and "ADMIN" in c), None)
                     cols_agenda = ["FECHA_ENTREGA_DT", "HS DE ENTREGA AL CLIENTE", "CLIENTE"]
                     if col_admin: cols_agenda.append(col_admin)
+                    
+                    # MODIFICACIÓN AQUÍ: Se añade "VIN" a la lista de columnas y se configura su etiqueta visible
                     cols_agenda.extend(["MARCA", "MODELO", "VIN", "CANAL DE VENTA", "TELEFONO_CLEAN", "VENDEDOR"])
                     config_columnas = {
                         "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
                         "HS DE ENTREGA AL CLIENTE": st.column_config.TextColumn("Hora"),
+                        "VIN": st.column_config.TextColumn("Número de VIN / Chasis"),
                         col_admin: st.column_config.TextColumn("Estado Admin") if col_admin else None
                     }
                 
@@ -390,7 +393,7 @@ elif opcion == "📦 Control de Stock y Documentación":
             else:
                 st.success("✅ Todo al día para esta combinación de estados en el sistema.")
 
-        # --- DEFINICIÓN DE LAS TRES SUB-PESTAÑAS (TENDENCIAS INCLUIDA AQUÍ) ---
+        # --- DEFINICIÓN DE LAS TRES SUB-PESTAÑAS ---
         tab_sub_fisico, tab_sub_documental, tab_sub_tendencias = st.tabs([
             "🏢 Estado Físico de Unidad", 
             "📄 Estado de Documentación", 
@@ -498,7 +501,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                 else:
                     st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
 
-        # --- SUB-PESTAÑA C: TENDENCIA DE TIEMPOS PROMEDIO (MUDADA AQUÍ) ---
         with tab_sub_tendencias:
             st.markdown("### 📈 Analítica Estratégica de Tiempos Promedio")
             
