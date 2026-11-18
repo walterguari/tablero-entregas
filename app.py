@@ -1,3 +1,8 @@
+Aquí tienes el código completo y actualizado. Ya integré las modificaciones en la pestaña de **📄 Estado de Documentación** para que las tablas muestren el teléfono del cliente (`TELEFONO_CLEAN`) y las fechas exactas (`FECHA_PEDIDO_UNIDAD_DT`, `FECHA_PAPELES_DT`, y `FECHA_ENTREGA_DT`) con su formato correcto (DD/MM/YYYY).
+
+Puedes copiar todo este bloque y reemplazar tu archivo actual:
+
+```python
 import streamlit as st
 import pandas as pd
 import datetime
@@ -474,7 +479,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
                     
-                # SE AGREGAN LAS COLUMNAS DE FECHAS Y TELÉFONO AQUÍ
                 cols_a_mostrar = [
                     "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, 
                     "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", "FECHA_ENTREGA_DT", 
@@ -510,7 +514,6 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
                     df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
                     
-                # SE AGREGAN LAS COLUMNAS DE FECHAS AQUÍ (Teléfono ya estaba)
                 cols_b_mostrar = [
                     "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, 
                     "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", 
@@ -680,3 +683,5 @@ elif opcion == "🗺️ Plano del Salón":
         if os.path.exists("mapa_citroen.jpg"): st.image("mapa_citroen.jpg", use_container_width=True)
         elif os.path.exists("Citroen.jpeg"): st.image("Citroen.jpeg", use_container_width=True)
         else: st.warning("Sube 'mapa_citroen.jpg'")
+
+```
