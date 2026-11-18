@@ -547,15 +547,14 @@ elif opcion == "📦 Control de Stock y Documentación":
             hoy_dt = pd.Timestamp.now().normalize()
 
             if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
-                # CAMBIO CLAVE: Ahora toma df_base_limpia (incluye entregados históricos + programados con fecha)
                 df_g_con = df_base_limpia[df_base_limpia["FECHA_ENTREGA_DT"].notna()].copy()
                 
                 if not df_g_con.empty:
-                    st.markdown("##### 📅 Filtros de Período (Basado en Fecha de Entrega)")
+                    st.markdown("##### 📅 Filtros de Período y Canal (Basado en Fecha de Entrega)")
                     df_g_con["AÑO_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.year
                     df_g_con["MES_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.month
                     
-                    c_f1, c_f2 = st.columns(2)
+                    c_f1, c_f2, c_f3 = st.columns(3)
                     años_disp = sorted(df_g_con["AÑO_ENTREGA_F"].dropna().unique().astype(int))
                     
                     nombres_meses = {
@@ -566,18 +565,29 @@ elif opcion == "📦 Control de Stock y Documentación":
                     }
                     
                     with c_f1:
-                        # Selecciona el último año por defecto para que el gráfico arranque limpio
                         default_año = [años_disp[-1]] if años_disp else []
                         años_sel = st.multiselect("Filtrar Año", options=años_disp, default=default_año)
                     
-                    # Filtra los meses disponibles según el/los año(s) seleccionado(s)
-                    df_por_año = df_g_con[df_g_con["AÑO_ENTREGA_F"].isin(años_sel)]
+                    df_por_año = df_g_con[df_g_con["AÑO_ENTREGA_F"].isin(años_sel)].copy()
                     meses_disp = sorted(df_por_año["MES_ENTREGA_F"].dropna().unique().astype(int))
                     
                     with c_f2:
                         meses_sel = st.multiselect("Filtrar Mes", options=meses_disp, default=meses_disp, format_func=lambda x: nombres_meses.get(x, str(x)))
                     
-                    df_filtrado = df_por_año[df_por_año["MES_ENTREGA_F"].isin(meses_sel)].copy()
+                    with c_f3:
+                        if "CANAL DE VENTA" in df_por_año.columns:
+                            df_por_año["CANAL_CLEAN"] = df_por_año["CANAL DE VENTA"].fillna("Sin Especificar").astype(str).str.strip()
+                            canales_disp = sorted(df_por_año["CANAL_CLEAN"].unique())
+                            canales_sel = st.multiselect("Filtrar Canal de Venta", options=canales_disp, default=canales_disp)
+                        else:
+                            canales_sel = []
+                    
+                    # Aplicamos los filtros de Mes y Canal de Venta
+                    mask_final = df_por_año["MES_ENTREGA_F"].isin(meses_sel)
+                    if "CANAL_CLEAN" in df_por_año.columns:
+                        mask_final = mask_final & df_por_año["CANAL_CLEAN"].isin(canales_sel)
+                        
+                    df_filtrado = df_por_año[mask_final].copy()
                     
                     if not df_filtrado.empty:
                         df_filtrado["DIF_PEDIDO_ENTREGA"] = (df_filtrado["FECHA_ENTREGA_DT"] - df_filtrado["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
