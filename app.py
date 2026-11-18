@@ -547,63 +547,64 @@ elif opcion == "📦 Control de Stock y Documentación":
             hoy_dt = pd.Timestamp.now().normalize()
 
             if st.session_state.filtro_grafico_segmento == '🚀 Vista: Con Fecha de Entrega':
-                df_g_con = df_con_fecha.copy()
+                # CAMBIO CLAVE: Ahora toma df_base_limpia (incluye entregados históricos + programados con fecha)
+                df_g_con = df_base_limpia[df_base_limpia["FECHA_ENTREGA_DT"].notna()].copy()
+                
                 if not df_g_con.empty:
-                    df_g_con = df_g_con.dropna(subset=["FECHA_ENTREGA_DT"])
+                    st.markdown("##### 📅 Filtros de Período (Basado en Fecha de Entrega)")
+                    df_g_con["AÑO_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.year
+                    df_g_con["MES_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.month
                     
-                    if not df_g_con.empty:
-                        st.markdown("##### 📅 Filtros de Período (Basado en Fecha de Entrega)")
-                        df_g_con["AÑO_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.year
-                        df_g_con["MES_ENTREGA_F"] = df_g_con["FECHA_ENTREGA_DT"].dt.month
+                    c_f1, c_f2 = st.columns(2)
+                    años_disp = sorted(df_g_con["AÑO_ENTREGA_F"].dropna().unique().astype(int))
+                    
+                    nombres_meses = {
+                        1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 
+                        4: "04 - Abril", 5: "05 - Mayo", 6: "06 - Junio", 
+                        7: "07 - Julio", 8: "08 - Agosto", 9: "09 - Septiembre", 
+                        10: "10 - Octubre", 11: "11 - Noviembre", 12: "12 - Diciembre"
+                    }
+                    
+                    with c_f1:
+                        # Selecciona el último año por defecto para que el gráfico arranque limpio
+                        default_año = [años_disp[-1]] if años_disp else []
+                        años_sel = st.multiselect("Filtrar Año", options=años_disp, default=default_año)
+                    
+                    # Filtra los meses disponibles según el/los año(s) seleccionado(s)
+                    df_por_año = df_g_con[df_g_con["AÑO_ENTREGA_F"].isin(años_sel)]
+                    meses_disp = sorted(df_por_año["MES_ENTREGA_F"].dropna().unique().astype(int))
+                    
+                    with c_f2:
+                        meses_sel = st.multiselect("Filtrar Mes", options=meses_disp, default=meses_disp, format_func=lambda x: nombres_meses.get(x, str(x)))
+                    
+                    df_filtrado = df_por_año[df_por_año["MES_ENTREGA_F"].isin(meses_sel)].copy()
+                    
+                    if not df_filtrado.empty:
+                        df_filtrado["DIF_PEDIDO_ENTREGA"] = (df_filtrado["FECHA_ENTREGA_DT"] - df_filtrado["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
+                        df_filtrado["DIF_PAPELES_ENTREGA"] = (df_filtrado["FECHA_ENTREGA_DT"] - df_filtrado["FECHA_PAPELES_DT"]).dt.days
+                        df_filtrado["AÑO_MES_X"] = df_filtrado["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
+                        df_graf_base = df_filtrado.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
                         
-                        c_f1, c_f2 = st.columns(2)
-                        años_disp = sorted(df_g_con["AÑO_ENTREGA_F"].dropna().unique().astype(int))
-                        meses_disp = sorted(df_g_con["MES_ENTREGA_F"].dropna().unique().astype(int))
+                        st.markdown("---")
+                        g_line1, g_line2 = st.columns(2)
                         
-                        # --- NUEVO: DICCIONARIO PARA NOMBRES DE MESES ---
-                        nombres_meses = {
-                            1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 
-                            4: "04 - Abril", 5: "05 - Mayo", 6: "06 - Junio", 
-                            7: "07 - Julio", 8: "08 - Agosto", 9: "09 - Septiembre", 
-                            10: "10 - Octubre", 11: "11 - Noviembre", 12: "12 - Diciembre"
-                        }
-                        
-                        with c_f1:
-                            años_sel = st.multiselect("Filtrar Año", options=años_disp, default=años_disp)
-                        with c_f2:
-                            # --- NUEVO: format_func TRADUCE EL NÚMERO AL NOMBRE DEL MES ---
-                            meses_sel = st.multiselect("Filtrar Mes", options=meses_disp, default=meses_disp, format_func=lambda x: nombres_meses.get(x, str(x)))
-                        
-                        df_filtrado = df_g_con[df_g_con["AÑO_ENTREGA_F"].isin(años_sel) & df_g_con["MES_ENTREGA_F"].isin(meses_sel)].copy()
-                        
-                        if not df_filtrado.empty:
-                            df_filtrado["DIF_PEDIDO_ENTREGA"] = (df_filtrado["FECHA_ENTREGA_DT"] - df_filtrado["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
-                            df_filtrado["DIF_PAPELES_ENTREGA"] = (df_filtrado["FECHA_ENTREGA_DT"] - df_filtrado["FECHA_PAPELES_DT"]).dt.days
-                            df_filtrado["AÑO_MES_X"] = df_filtrado["FECHA_ENTREGA_DT"].dt.strftime('%Y-%m')
-                            df_graf_base = df_filtrado.dropna(subset=["AÑO_MES_X"]).sort_values("AÑO_MES_X")
-                            
-                            st.markdown("---")
-                            g_line1, g_line2 = st.columns(2)
-                            
-                            with g_line1:
-                                st.markdown("##### 📉 Promedio Días Pedido ➔ Entrega")
-                                df_g1 = df_graf_base.dropna(subset=["DIF_PEDIDO_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
-                                if not df_g1.empty:
-                                    st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
-                                else:
-                                    st.caption("Faltan datos cronológicos.")
-                                    
-                            with g_line2:
-                                st.markdown("##### 📉 Promedio Días Papeles Disp. ➔ Entrega")
-                                df_g2 = df_graf_base.dropna(subset=["DIF_PAPELES_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
-                                if not df_g2.empty:
-                                    st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
-                                else:
-                                    st.caption("Faltan datos cronológicos.")
-                        else:
-                            st.warning("No hay registros para los filtros seleccionados.")
+                        with g_line1:
+                            st.markdown("##### 📉 Promedio Días Pedido ➔ Entrega")
+                            df_g1 = df_graf_base.dropna(subset=["DIF_PEDIDO_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PEDIDO_ENTREGA"].mean().reset_index(name="Promedio Días")
+                            if not df_g1.empty:
+                                st.line_chart(df_g1.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                            else:
+                                st.caption("Faltan datos cronológicos.")
+                                
+                        with g_line2:
+                            st.markdown("##### 📉 Promedio Días Papeles Disp. ➔ Entrega")
+                            df_g2 = df_graf_base.dropna(subset=["DIF_PAPELES_ENTREGA"]).groupby("AÑO_MES_X")["DIF_PAPELES_ENTREGA"].mean().reset_index(name="Promedio Días")
+                            if not df_g2.empty:
+                                st.line_chart(df_g2.set_index("AÑO_MES_X")["Promedio Días"], use_container_width=True)
+                            else:
+                                st.caption("Faltan datos cronológicos.")
                     else:
-                        st.info("Sin registros con fecha de entrega para calcular tendencias.")
+                        st.warning("No hay registros para los filtros seleccionados.")
                 else:
                     st.info("Sin registros con fecha de entrega para calcular tendencias.")
             else:
