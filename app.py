@@ -560,10 +560,19 @@ elif opcion == "📦 Control de Stock y Documentación":
                         años_disp = sorted(df_g_con["AÑO_ENTREGA_F"].dropna().unique().astype(int))
                         meses_disp = sorted(df_g_con["MES_ENTREGA_F"].dropna().unique().astype(int))
                         
+                        # --- NUEVO: DICCIONARIO PARA NOMBRES DE MESES ---
+                        nombres_meses = {
+                            1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 
+                            4: "04 - Abril", 5: "05 - Mayo", 6: "06 - Junio", 
+                            7: "07 - Julio", 8: "08 - Agosto", 9: "09 - Septiembre", 
+                            10: "10 - Octubre", 11: "11 - Noviembre", 12: "12 - Diciembre"
+                        }
+                        
                         with c_f1:
                             años_sel = st.multiselect("Filtrar Año", options=años_disp, default=años_disp)
                         with c_f2:
-                            meses_sel = st.multiselect("Filtrar Mes", options=meses_disp, default=meses_disp)
+                            # --- NUEVO: format_func TRADUCE EL NÚMERO AL NOMBRE DEL MES ---
+                            meses_sel = st.multiselect("Filtrar Mes", options=meses_disp, default=meses_disp, format_func=lambda x: nombres_meses.get(x, str(x)))
                         
                         df_filtrado = df_g_con[df_g_con["AÑO_ENTREGA_F"].isin(años_sel) & df_g_con["MES_ENTREGA_F"].isin(meses_sel)].copy()
                         
