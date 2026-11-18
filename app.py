@@ -474,7 +474,12 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
                     df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
                     
-                cols_a_mostrar = ["MARCA", "VIN", "CLIENTE", col_canal_native, col_vendedor_native, "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"]
+                # SE AGREGAN LAS COLUMNAS DE FECHAS Y TELÉFONO AQUÍ
+                cols_a_mostrar = [
+                    "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, 
+                    "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", "FECHA_ENTREGA_DT", 
+                    "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"
+                ]
                 cols_reales_a = [c for c in cols_a_mostrar if c in df_tabla_doc_act.columns]
                 df_final_render_a = df_tabla_doc_act[cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_a].columns.duplicated()]
                 
@@ -482,6 +487,10 @@ elif opcion == "📦 Control de Stock y Documentación":
                     st.dataframe(
                         df_final_render_a.sort_values(by="CLIENTE"), use_container_width=True, hide_index=True,
                         column_config={
+                            "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                            "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
+                            "FECHA_PAPELES_DT": st.column_config.DateColumn("Fecha Papeles Disp.", format="DD/MM/YYYY"),
+                            "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
                             "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn("Días Pedido ➔ Entrega", format="%d"),
                             "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn("Días Papeles Disp. ➔ Entrega", format="%d")
                         }
@@ -501,7 +510,12 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
                     df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
                     
-                cols_b_mostrar = ["MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"]
+                # SE AGREGAN LAS COLUMNAS DE FECHAS AQUÍ (Teléfono ya estaba)
+                cols_b_mostrar = [
+                    "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, col_vendedor_native, 
+                    "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", 
+                    "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"
+                ]
                 cols_reales_b = [c for c in cols_b_mostrar if c in df_tabla_doc_pend.columns]
                 df_final_render_b = df_tabla_doc_pend[cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_b].columns.duplicated()]
                 
@@ -509,6 +523,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                     st.dataframe(
                         df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True,
                         column_config={
+                            "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                            "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
+                            "FECHA_PAPELES_DT": st.column_config.DateColumn("Fecha Papeles Disp.", format="DD/MM/YYYY"),
                             "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
                             "DIF_PAPELES_HOY": st.column_config.NumberColumn("Días Papeles Disp. ➔ Hoy", format="%d")
                         }
