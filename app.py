@@ -35,6 +35,10 @@ SHEET_ID_0KM = "15hIQ6WBxh1Ymhh9dxerKvEnoXJ_osH6a9BH-1TW9ZU8"
 GID_0KM = "1504374770"
 URL_0KM = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_0KM}/export?format=csv&gid={GID_0KM}"
 
+SHEET_ID_DOC = "1C3UysI1cfMZmc6kQJ7_M4HkuPhQ8gJwXR9MlJfN3TOQ"
+GID_DOC = "438446993"
+URL_DOC = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_DOC}/export?format=csv&gid={GID_DOC}"
+
 SHEET_ID_USADOS = "1Kxy6d8xRR0WlypTVZygL1KHbc_i1MlNnd_JcEhCbc3c"
 GID_USADOS = "183300599"
 URL_USADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_USADOS}/export?format=csv&gid={GID_USADOS}"
@@ -88,13 +92,15 @@ def load_data(url, fila_header=0, es_usados=False):
                 df["FECHA_ARRIBO_DT"] = pd.to_datetime(df[col_arribo], dayfirst=True, errors='coerce')
                 df["AÑO_ARRIBO"] = df["FECHA_ARRIBO_DT"].dt.year
 
-            col_fact = "FECHA DE FACTURACION DE LA UNIDAD"
-            if col_fact in df.columns:
+            col_fact = next((c for c in df.columns if "FACTURACI" in c), None)
+            if col_fact:
                 df["FECHA_FACTURACION_DT"] = pd.to_datetime(df[col_fact], dayfirst=True, errors='coerce')
 
-            col_papeles = "FECHA DISPONIBILIDAD PAPELES"
-            if col_papeles in df.columns:
+            col_papeles = next((c for c in df.columns if "DISPONIB" in c and "PAPELES" in c), None)
+            if col_papeles:
                 df["FECHA_PAPELES_DT"] = pd.to_datetime(df[col_papeles], dayfirst=True, errors='coerce')
+            else:
+                df["FECHA_PAPELES_DT"] = pd.NaT
 
             col_prep = next((c for c in df.columns if "PEDIDO" in c and "PREPARACI" in c), None)
             if col_prep:
@@ -105,8 +111,12 @@ def load_data(url, fila_header=0, es_usados=False):
             col_pedido_un = next((c for c in df.columns if "FECHA" in c and ("PEDIDO" in c or "COMPRA" in c) and "PREPARACI" not in c), None)
             if col_pedido_un:
                 df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_pedido_un], dayfirst=True, errors='coerce')
+            elif col_fact:
+                df["FECHA_PEDIDO_UNIDAD_DT"] = df["FECHA_FACTURACION_DT"]
+            elif col_prep:
+                df["FECHA_PEDIDO_UNIDAD_DT"] = df["FECHA_PREPARACION_DT"]
             else:
-                df["FECHA_PEDIDO_UNIDAD_DT"] = pd.to_datetime(df[col_fact] if col_fact in df.columns else df[col_prep], dayfirst=True, errors='coerce')
+                df["FECHA_PEDIDO_UNIDAD_DT"] = pd.NaT
 
         col_tel = next((c for c in df.columns if "TELEFONO" in c or "CELULAR" in c or "TEL" in c), None)
         if col_tel: 
@@ -123,6 +133,7 @@ def load_data(url, fila_header=0, es_usados=False):
 
 # Carga limpia de fuentes
 df_0km = load_data(URL_0KM, fila_header=0, es_usados=False)
+df_doc_0km = load_data(URL_DOC, fila_header=0, es_usados=False)
 df_usados = load_data(URL_USADOS, fila_header=1, es_usados=True)
 
 # --- MEMORIA DE ESTADO ---
@@ -443,97 +454,147 @@ elif opcion == "📦 Control de Stock y Documentación":
             renderizar_tabla_tiempos_operativa(df_resultado_fisico, "tabla_fisica_pura")
 
         with tab_sub_documental:
-            st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación):")
-            col_b1, col_b2 = st.columns(2)
-            type_b1 = "primary" if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega' else "secondary"
-            type_b2 = "primary" if st.session_state.filtro_doc_segmento == '🚨 SIN Fecha de Entrega' else "secondary"
-            
-            with col_b1:
-                if st.button(f"🚀 Con Fecha de Entrega ({len(df_con_fecha)})", use_container_width=True, type=type_b1, key="btn_doc_con_fecha"):
-                    st.session_state.filtro_doc_segmento = '🚀 Con Fecha de Entrega'
-            with col_b2:
-                if st.button(f"🚨 SIN Fecha de Entrega ({len(df_sin_fecha)})", use_container_width=True, type=type_b2, key="btn_doc_sin_fecha"):
-                    st.session_state.filtro_doc_segmento = '🚨 SIN Fecha de Entrega'
-                    
-            st.markdown("<br>", unsafe_allow_html=True)
-            hoy_dt = pd.Timestamp.now().normalize()
-            col_canal_native = "CANAL DE VENTA" if "CANAL DE VENTA" in df_stock_real.columns else "CANAL DE VENTA"
+            df_doc_raw = df_doc_0km.copy()
 
-            if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
-                st.markdown(f"##### 📋 Tabla de Control Operativo — `{st.session_state.filtro_doc_segmento}`")
-                df_tabla_doc_act = df_con_fecha.copy()
-                
-                if not df_tabla_doc_act.empty:
-                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
-                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days
-                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = df_tabla_doc_act["DIF_PEDIDO_ENTREGA"].fillna(0).astype(int)
-                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = df_tabla_doc_act["DIF_PAPELES_ENTREGA"].fillna(0).astype(int)
-                else:
-                    df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
-                    df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
-                    
-                cols_a_mostrar = [
-                    "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, 
-                    "ESTADO DE ADMINISTRATIVO",
-                    "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", "FECHA_ENTREGA_DT", 
-                    "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"
-                ]
-                cols_reales_a = [c for c in cols_a_mostrar if c in df_tabla_doc_act.columns]
-                df_final_render_a = df_tabla_doc_act[cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_a].columns.duplicated()]
-                
-                if not df_final_render_a.empty:
-                    st.dataframe(
-                        df_final_render_a.sort_values(by="CLIENTE"), use_container_width=True, hide_index=True,
-                        column_config={
-                            "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
-                            "ESTADO DE ADMINISTRATIVO": st.column_config.TextColumn("Estado Admin"),
-                            "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
-                            "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
-                            "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
-                            "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn("Días Pedido ➔ Entrega", format="%d"),
-                            "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn("Días Papeles Disp. ➔ Entrega", format="%d")
-                        }
+            if not df_doc_raw.empty:
+                # Aplicar los mismos filtros generales (Marca y Buscador Directo)
+                if "MARCA" in df_doc_raw.columns and 'marcas_sel' in locals():
+                    df_doc_raw = df_doc_raw[df_doc_raw["MARCA"].isin(marcas_sel)]
+                if search:
+                    mask_doc_search = df_doc_raw.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
+                    df_doc_raw = df_doc_raw[mask_doc_search]
+
+                # Detección dinámica de columnas en 0KM WG
+                col_vin_doc = next((c for c in df_doc_raw.columns if "CHASIS" in c or "VIN" in c), None)
+                col_admin_doc = next((c for c in df_doc_raw.columns if "ESTADO" in c and "ADMIN" in c), None)
+                col_detalle_doc = next((c for c in df_doc_raw.columns if "DETALLE" in c and "ESTADO" in c), None)
+                col_canal_doc = next((c for c in df_doc_raw.columns if "CANAL" in c and "VENTA" in c), "CANAL DE VENTA")
+
+                # Segmentación independiente usando la fuente 0KM WG
+                df_doc_raw["ESTADO_CLEAN"] = df_doc_raw["ESTADO"].astype(str).str.strip().str.upper()
+                df_doc_limpia = df_doc_raw[df_doc_raw["ESTADO"].notna() & (df_doc_raw["ESTADO_CLEAN"] != "NAN") & (df_doc_raw["ESTADO_CLEAN"] != "")]
+                df_doc_stock = df_doc_limpia[df_doc_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
+
+                df_doc_con_fecha = df_doc_stock[df_doc_stock["FECHA_ENTREGA_DT"].notna()].copy()
+                df_doc_sin_fecha_base = df_doc_stock[df_doc_stock["FECHA_ENTREGA_DT"].isna()].copy()
+
+                if "CLIENTE" in df_doc_sin_fecha_base.columns:
+                    df_doc_sin_fecha_base["CLIENTE_UPPER"] = df_doc_sin_fecha_base["CLIENTE"].astype(str).str.strip().str.upper()
+                    mask_doc_cliente = (
+                        df_doc_sin_fecha_base["CLIENTE"].notna() &
+                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "") &
+                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "NAN") &
+                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
                     )
+                    mask_doc_base = mask_doc_cliente | df_doc_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
                 else:
-                    st.info("No hay vehículos con fecha de entrega planificada.")
+                    mask_doc_base = df_doc_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
+
+                if col_admin_doc:
+                    df_doc_sin_fecha_base["ADMIN_UPPER"] = df_doc_sin_fecha_base[col_admin_doc].astype(str).str.strip().str.upper()
+                    mask_doc_excluir = (
+                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("LEGALES", na=False) |
+                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("SIN CLIENTE", na=False) |
+                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("REVENTA", na=False)
+                    )
+                    df_doc_sin_fecha = df_doc_sin_fecha_base[mask_doc_base & ~mask_doc_excluir].copy()
+                else:
+                    df_doc_sin_fecha = df_doc_sin_fecha_base[mask_doc_base].copy()
+
+                st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación — 0KM WG):")
+                col_b1, col_b2 = st.columns(2)
+                type_b1 = "primary" if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega' else "secondary"
+                type_b2 = "primary" if st.session_state.filtro_doc_segmento == '🚨 SIN Fecha de Entrega' else "secondary"
+
+                with col_b1:
+                    if st.button(f"🚀 Con Fecha de Entrega ({len(df_doc_con_fecha)})", use_container_width=True, type=type_b1, key="btn_doc_con_fecha"):
+                        st.session_state.filtro_doc_segmento = '🚀 Con Fecha de Entrega'
+                with col_b2:
+                    if st.button(f"🚨 SIN Fecha de Entrega ({len(df_doc_sin_fecha)})", use_container_width=True, type=type_b2, key="btn_doc_sin_fecha"):
+                        st.session_state.filtro_doc_segmento = '🚨 SIN Fecha de Entrega'
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                hoy_dt = pd.Timestamp.now().normalize()
+
+                if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
+                    st.markdown(f"##### 📋 Tabla de Control Operativo — `{st.session_state.filtro_doc_segmento}`")
+                    df_tabla_doc_act = df_doc_con_fecha.copy()
+
+                    if not df_tabla_doc_act.empty:
+                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
+                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
+                    else:
+                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
+                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
+
+                    cols_a_mostrar = [
+                        "MARCA", col_vin_doc, "CLIENTE", "TELEFONO_CLEAN", col_canal_doc,
+                        col_admin_doc,
+                        "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", "FECHA_ENTREGA_DT",
+                        "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"
+                    ]
+                    cols_reales_a = [c for c in cols_a_mostrar if c and c in df_tabla_doc_act.columns]
+                    df_final_render_a = df_tabla_doc_act[cols_reales_a].loc[:, ~df_tabla_doc_act[cols_reales_a].columns.duplicated()]
+
+                    config_a = {
+                        "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                        "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
+                        "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
+                        "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
+                        "DIF_PEDIDO_ENTREGA": st.column_config.NumberColumn("Días Pedido ➔ Entrega", format="%d"),
+                        "DIF_PAPELES_ENTREGA": st.column_config.NumberColumn("Días Papeles Disp. ➔ Entrega", format="%d")
+                    }
+                    if col_vin_doc: config_a[col_vin_doc] = st.column_config.TextColumn("VIN / Chasis")
+                    if col_admin_doc: config_a[col_admin_doc] = st.column_config.TextColumn("Estado Admin")
+
+                    if not df_final_render_a.empty:
+                        st.dataframe(
+                            df_final_render_a.sort_values(by="CLIENTE"), use_container_width=True, hide_index=True,
+                            column_config=config_a
+                        )
+                    else:
+                        st.info("No hay vehículos con fecha de entrega planificada.")
+                else:
+                    st.markdown(f"##### 📋 Tabla de Alertas y Seguimiento — `{st.session_state.filtro_doc_segmento}`")
+                    df_tabla_doc_pend = df_doc_sin_fecha.copy()
+
+                    if not df_tabla_doc_pend.empty:
+                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
+                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
+                    else:
+                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
+                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
+
+                    cols_b_mostrar = [
+                        "MARCA", col_vin_doc, "CLIENTE", "TELEFONO_CLEAN", col_canal_doc,
+                        col_admin_doc, "ESTADO", col_detalle_doc,
+                        "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT",
+                        "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"
+                    ]
+                    cols_reales_b = [c for c in cols_b_mostrar if c and c in df_tabla_doc_pend.columns]
+                    df_final_render_b = df_tabla_doc_pend[cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_b].columns.duplicated()]
+
+                    config_b = {
+                        "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                        "ESTADO": st.column_config.TextColumn("Estado Unidad"),
+                        "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
+                        "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
+                        "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
+                        "DIF_PAPELES_HOY": st.column_config.NumberColumn("Días Papeles Disp. ➔ Hoy", format="%d")
+                    }
+                    if col_vin_doc: config_b[col_vin_doc] = st.column_config.TextColumn("VIN / Chasis")
+                    if col_admin_doc: config_b[col_admin_doc] = st.column_config.TextColumn("Estado Admin")
+                    if col_detalle_doc: config_b[col_detalle_doc] = st.column_config.TextColumn("Detalle / Obs.")
+
+                    if not df_final_render_b.empty:
+                        st.dataframe(
+                            df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True,
+                            column_config=config_b
+                        )
+                    else:
+                        st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
             else:
-                st.markdown(f"##### 📋 Tabla de Alertas y Seguimiento — `{st.session_state.filtro_doc_segmento}`")
-                df_tabla_doc_pend = df_sin_fecha.copy()
-                
-                if not df_tabla_doc_pend.empty:
-                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days
-                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days
-                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = df_tabla_doc_pend["DIF_PEDIDO_HOY"].fillna(0).astype(int)
-                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = df_tabla_doc_pend["DIF_PAPELES_HOY"].fillna(0).astype(int)
-                else:
-                    df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
-                    df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
-                    
-                cols_b_mostrar = [
-                    "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, 
-                    "ESTADO DE ADMINISTRATIVO", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD",
-                    "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", 
-                    "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"
-                ]
-                cols_reales_b = [c for c in cols_b_mostrar if c in df_tabla_doc_pend.columns]
-                df_final_render_b = df_tabla_doc_pend[cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_b].columns.duplicated()]
-                
-                if not df_final_render_b.empty:
-                    st.dataframe(
-                        df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True,
-                        column_config={
-                            "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
-                            "ESTADO DE ADMINISTRATIVO": st.column_config.TextColumn("Estado Admin"),
-                            "ESTADO": st.column_config.TextColumn("Estado Unidad"),
-                            "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD": st.column_config.TextColumn("Detalle / Obs."),
-                            "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
-                            "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
-                            "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
-                            "DIF_PAPELES_HOY": st.column_config.NumberColumn("Días Papeles Disp. ➔ Hoy", format="%d")
-                        }
-                    )
-                else:
-                    st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
+                st.warning("No se pudieron cargar los datos de la hoja 0KM WG.")
 
         with tab_sub_tendencias:
             st.markdown("### 📈 Analítica Estratégica de Tiempos Promedio")
