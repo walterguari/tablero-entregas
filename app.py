@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 from datetime import timedelta
 import os
+import io
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Portal Autociel", layout="wide", initial_sidebar_state="expanded")
@@ -505,16 +506,40 @@ elif opcion == "📦 Control de Stock y Documentación":
                 st.markdown("<br>", unsafe_allow_html=True)
                 hoy_dt = pd.Timestamp.now().normalize()
 
+                # Función auxiliar para exportar a Excel
+                def convertir_a_excel(df_exp, mapa_nombres):
+                    df_out = df_exp.copy()
+                    for col in df_out.select_dtypes(include=["datetime64[ns]"]).columns:
+                        df_out[col] = df_out[col].dt.strftime("%d/%m/%Y")
+                    df_out = df_out.rename(columns=mapa_nombres)
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                        df_out.to_excel(writer, index=False, sheet_name="Documentacion")
+                    return buffer.getvalue()
+
                 if st.session_state.filtro_doc_segmento == '🚀 Con Fecha de Entrega':
                     st.markdown(f"##### 📋 Tabla de Control Operativo — `{st.session_state.filtro_doc_segmento}`")
                     df_tabla_doc_act = df_doc_con_fecha.copy()
 
+                    # 1. Filtro rápido por Estado Administrativo
+                    if col_admin_doc and not df_tabla_doc_act.empty:
+                        df_tabla_doc_act["ADMIN_DISPLAY"] = df_tabla_doc_act[col_admin_doc].fillna("Sin Estado").astype(str).str.strip()
+                        estados_admin_disp = sorted(df_tabla_doc_act["ADMIN_DISPLAY"].unique())
+                        estados_admin_sel = st.multiselect(
+                            "🔎 Filtrar por Estado Administrativo",
+                            options=estados_admin_disp,
+                            default=estados_admin_disp,
+                            key="filtro_admin_doc_con"
+                        )
+                        df_tabla_doc_act = df_tabla_doc_act[df_tabla_doc_act["ADMIN_DISPLAY"].isin(estados_admin_sel)]
+
+                    # 3. Diferencia en días manteniendo vacíos como nulos (Int64) en vez de 0
                     if not df_tabla_doc_act.empty:
-                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
-                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
+                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.astype("Int64")
+                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days.astype("Int64")
                     else:
-                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype=int)
-                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype=int)
+                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype="Int64")
+                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype="Int64")
 
                     cols_a_mostrar = [
                         "MARCA", col_vin_doc, "CLIENTE", "TELEFONO_CLEAN", col_canal_doc,
@@ -537,25 +562,67 @@ elif opcion == "📦 Control de Stock y Documentación":
                     if col_admin_doc: config_a[col_admin_doc] = st.column_config.TextColumn("Estado Admin")
 
                     if not df_final_render_a.empty:
-                        st.dataframe(
-                            df_final_render_a.sort_values(by="CLIENTE"), use_container_width=True, hide_index=True,
-                            column_config=config_a
+                        df_ordenado_a = df_final_render_a.sort_values(by="CLIENTE", na_position="last")
+                        st.dataframe(df_ordenado_a, use_container_width=True, hide_index=True, column_config=config_a)
+
+                        # 4. Botón de descarga a Excel
+                        nombres_excel_a = {
+                            "TELEFONO_CLEAN": "Teléfono",
+                            "FECHA_PEDIDO_UNIDAD_DT": "Fecha Pedido",
+                            "FECHA_PAPELES_DT": "Papeles Disp.",
+                            "FECHA_ENTREGA_DT": "Fecha Entrega",
+                            "DIF_PEDIDO_ENTREGA": "Días Pedido -> Entrega",
+                            "DIF_PAPELES_ENTREGA": "Días Papeles Disp. -> Entrega"
+                        }
+                        if col_vin_doc: nombres_excel_a[col_vin_doc] = "VIN / Chasis"
+                        if col_admin_doc: nombres_excel_a[col_admin_doc] = "Estado Admin"
+
+                        st.download_button(
+                            label="📥 Descargar tabla en Excel (.xlsx)",
+                            data=convertir_a_excel(df_ordenado_a, nombres_excel_a),
+                            file_name=f"Documentacion_Con_Fecha_{datetime.date.today().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="dl_doc_con_fecha"
                         )
                     else:
-                        st.info("No hay vehículos con fecha de entrega planificada.")
+                        st.info("No hay vehículos con fecha de entrega planificada para los filtros seleccionados.")
                 else:
                     st.markdown(f"##### 📋 Tabla de Alertas y Seguimiento — `{st.session_state.filtro_doc_segmento}`")
                     df_tabla_doc_pend = df_doc_sin_fecha.copy()
 
+                    # 1. Filtro rápido por Estado Administrativo
+                    if col_admin_doc and not df_tabla_doc_pend.empty:
+                        df_tabla_doc_pend["ADMIN_DISPLAY"] = df_tabla_doc_pend[col_admin_doc].fillna("Sin Estado").astype(str).str.strip()
+                        estados_admin_disp = sorted(df_tabla_doc_pend["ADMIN_DISPLAY"].unique())
+                        estados_admin_sel = st.multiselect(
+                            "🔎 Filtrar por Estado Administrativo",
+                            options=estados_admin_disp,
+                            default=estados_admin_disp,
+                            key="filtro_admin_doc_sin"
+                        )
+                        df_tabla_doc_pend = df_tabla_doc_pend[df_tabla_doc_pend["ADMIN_DISPLAY"].isin(estados_admin_sel)]
+
+                    # 2 y 3. Diferencia en días sin rellenar vacíos con 0 + Semáforo de Alerta Documental
+                    def semaforo_documental(dias):
+                        if pd.isna(dias):
+                            return "⏳ Sin Papeles"
+                        elif dias >= 6:
+                            return f"🔴 Crítico ({int(dias)}d)"
+                        elif dias >= 3:
+                            return f"⚠️ Demorado ({int(dias)}d)"
+                        return f"🟢 Al Día ({int(dias)}d)"
+
                     if not df_tabla_doc_pend.empty:
-                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.fillna(0).astype(int)
-                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days.fillna(0).astype(int)
+                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.astype("Int64")
+                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days.astype("Int64")
+                        df_tabla_doc_pend["ALERTA_DOC"] = df_tabla_doc_pend["DIF_PAPELES_HOY"].apply(semaforo_documental)
                     else:
-                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype=int)
-                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype=int)
+                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype="Int64")
+                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = pd.Series(dtype="Int64")
+                        df_tabla_doc_pend["ALERTA_DOC"] = pd.Series(dtype=str)
 
                     cols_b_mostrar = [
-                        "MARCA", col_vin_doc, "CLIENTE", "TELEFONO_CLEAN", col_canal_doc,
+                        "ALERTA_DOC", "MARCA", col_vin_doc, "CLIENTE", "TELEFONO_CLEAN", col_canal_doc,
                         col_admin_doc, "ESTADO", col_detalle_doc,
                         "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT",
                         "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"
@@ -564,6 +631,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                     df_final_render_b = df_tabla_doc_pend[cols_reales_b].loc[:, ~df_tabla_doc_pend[cols_reales_b].columns.duplicated()]
 
                     config_b = {
+                        "ALERTA_DOC": st.column_config.TextColumn("Alerta Papeles"),
                         "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
                         "ESTADO": st.column_config.TextColumn("Estado Unidad"),
                         "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
@@ -576,12 +644,32 @@ elif opcion == "📦 Control de Stock y Documentación":
                     if col_detalle_doc: config_b[col_detalle_doc] = st.column_config.TextColumn("Detalle / Obs.")
 
                     if not df_final_render_b.empty:
-                        st.dataframe(
-                            df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True,
-                            column_config=config_b
+                        df_ordenado_b = df_final_render_b.sort_values(by="DIF_PAPELES_HOY", ascending=False, na_position="last")
+                        st.dataframe(df_ordenado_b, use_container_width=True, hide_index=True, column_config=config_b)
+
+                        # 4. Botón de descarga a Excel
+                        nombres_excel_b = {
+                            "ALERTA_DOC": "Alerta Papeles",
+                            "TELEFONO_CLEAN": "Teléfono",
+                            "ESTADO": "Estado Unidad",
+                            "FECHA_PEDIDO_UNIDAD_DT": "Fecha Pedido",
+                            "FECHA_PAPELES_DT": "Papeles Disp.",
+                            "DIF_PEDIDO_HOY": "Días Pedido -> Hoy",
+                            "DIF_PAPELES_HOY": "Días Papeles Disp. -> Hoy"
+                        }
+                        if col_vin_doc: nombres_excel_b[col_vin_doc] = "VIN / Chasis"
+                        if col_admin_doc: nombres_excel_b[col_admin_doc] = "Estado Admin"
+                        if col_detalle_doc: nombres_excel_b[col_detalle_doc] = "Detalle / Obs."
+
+                        st.download_button(
+                            label="📥 Descargar alertas en Excel (.xlsx)",
+                            data=convertir_a_excel(df_ordenado_b, nombres_excel_b),
+                            file_name=f"Documentacion_Sin_Fecha_{datetime.date.today().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="dl_doc_sin_fecha"
                         )
                     else:
-                        st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada.")
+                        st.success("✅ ¡Excelente! No se registran clientes sin fecha de entrega asignada para los filtros seleccionados.")
             else:
                 st.warning("No se pudieron cargar los datos de la hoja 0KM WG.")
 
