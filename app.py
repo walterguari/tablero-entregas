@@ -470,36 +470,17 @@ elif opcion == "📦 Control de Stock y Documentación":
                 col_detalle_doc = next((c for c in df_doc_raw.columns if "DETALLE" in c and "ESTADO" in c), None)
                 col_canal_doc = next((c for c in df_doc_raw.columns if "CANAL" in c and "VENTA" in c), "CANAL DE VENTA")
 
-                # Segmentación independiente usando la fuente 0KM WG
-                df_doc_raw["ESTADO_CLEAN"] = df_doc_raw["ESTADO"].astype(str).str.strip().str.upper()
-                df_doc_limpia = df_doc_raw[df_doc_raw["ESTADO"].notna() & (df_doc_raw["ESTADO_CLEAN"] != "NAN") & (df_doc_raw["ESTADO_CLEAN"] != "")]
-                df_doc_stock = df_doc_limpia[df_doc_limpia["ESTADO_CLEAN"] != "ENTREGADO"]
+                # Normalizamos la columna ESTADO (Estado Unidad)
+                df_doc_raw["ESTADO_CLEAN"] = df_doc_raw["ESTADO"].fillna("").astype(str).str.strip().str.upper()
 
-                df_doc_con_fecha = df_doc_stock[df_doc_stock["FECHA_ENTREGA_DT"].notna()].copy()
-                df_doc_sin_fecha_base = df_doc_stock[df_doc_stock["FECHA_ENTREGA_DT"].isna()].copy()
+                # Base sin "ENTREGADO"
+                df_doc_no_entregado = df_doc_raw[df_doc_raw["ESTADO_CLEAN"] != "ENTREGADO"].copy()
 
-                if "CLIENTE" in df_doc_sin_fecha_base.columns:
-                    df_doc_sin_fecha_base["CLIENTE_UPPER"] = df_doc_sin_fecha_base["CLIENTE"].astype(str).str.strip().str.upper()
-                    mask_doc_cliente = (
-                        df_doc_sin_fecha_base["CLIENTE"].notna() &
-                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "") &
-                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "NAN") &
-                        (df_doc_sin_fecha_base["CLIENTE_UPPER"] != "UNIDAD SIN CLIENTE ASIGNADO")
-                    )
-                    mask_doc_base = mask_doc_cliente | df_doc_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
-                else:
-                    mask_doc_base = df_doc_sin_fecha_base["FECHA_PREPARACION_DT"].notna()
+                # Con Fecha de Entrega: no entregados que tienen fecha confirmada
+                df_doc_con_fecha = df_doc_no_entregado[df_doc_no_entregado["FECHA_ENTREGA_DT"].notna()].copy()
 
-                if col_admin_doc:
-                    df_doc_sin_fecha_base["ADMIN_UPPER"] = df_doc_sin_fecha_base[col_admin_doc].astype(str).str.strip().str.upper()
-                    mask_doc_excluir = (
-                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("LEGALES", na=False) |
-                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("SIN CLIENTE", na=False) |
-                        df_doc_sin_fecha_base["ADMIN_UPPER"].str.contains("REVENTA", na=False)
-                    )
-                    df_doc_sin_fecha = df_doc_sin_fecha_base[mask_doc_base & ~mask_doc_excluir].copy()
-                else:
-                    df_doc_sin_fecha = df_doc_sin_fecha_base[mask_doc_base].copy()
+                # SIN Fecha de Entrega: TODAS las filas excluyendo "Entregado" en Estado Unidad y las que contienen fecha
+                df_doc_sin_fecha = df_doc_no_entregado[df_doc_no_entregado["FECHA_ENTREGA_DT"].isna()].copy()
 
                 st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación — 0KM WG):")
                 col_b1, col_b2 = st.columns(2)
