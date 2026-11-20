@@ -474,6 +474,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                     
                 cols_a_mostrar = [
                     "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, 
+                    "ESTADO DE ADMINISTRATIVO",
                     "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", "FECHA_ENTREGA_DT", 
                     "DIF_PEDIDO_ENTREGA", "DIF_PAPELES_ENTREGA"
                 ]
@@ -485,6 +486,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                         df_final_render_a.sort_values(by="CLIENTE"), use_container_width=True, hide_index=True,
                         column_config={
                             "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                            "ESTADO DE ADMINISTRATIVO": st.column_config.TextColumn("Estado Admin"),
                             "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
                             "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
                             "FECHA_ENTREGA_DT": st.column_config.DateColumn("Fecha Entrega", format="DD/MM/YYYY"),
@@ -509,6 +511,7 @@ elif opcion == "📦 Control de Stock y Documentación":
                     
                 cols_b_mostrar = [
                     "MARCA", "VIN", "CLIENTE", "TELEFONO_CLEAN", col_canal_native, 
+                    "ESTADO DE ADMINISTRATIVO", "ESTADO", "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD",
                     "FECHA_PEDIDO_UNIDAD_DT", "FECHA_PAPELES_DT", 
                     "DIF_PEDIDO_HOY", "DIF_PAPELES_HOY"
                 ]
@@ -520,6 +523,9 @@ elif opcion == "📦 Control de Stock y Documentación":
                         df_final_render_b.sort_values(by="DIF_PEDIDO_HOY", ascending=False), use_container_width=True, hide_index=True,
                         column_config={
                             "TELEFONO_CLEAN": st.column_config.TextColumn("Teléfono"),
+                            "ESTADO DE ADMINISTRATIVO": st.column_config.TextColumn("Estado Admin"),
+                            "ESTADO": st.column_config.TextColumn("Estado Unidad"),
+                            "DETALLE DEL ESTADO Y FECHA DE DISPONIBILIDAD DE UNIDAD": st.column_config.TextColumn("Detalle / Obs."),
                             "FECHA_PEDIDO_UNIDAD_DT": st.column_config.DateColumn("Fecha Pedido", format="DD/MM/YYYY"),
                             "FECHA_PAPELES_DT": st.column_config.DateColumn("Papeles Disp.", format="DD/MM/YYYY"),
                             "DIF_PEDIDO_HOY": st.column_config.NumberColumn("Días Pedido ➔ Hoy", format="%d"),
