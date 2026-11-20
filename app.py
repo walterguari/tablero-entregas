@@ -4,7 +4,26 @@ import datetime
 from datetime import timedelta
 import os
 import io
+import numpy as np
+import holidays
 
+# Feriados nacionales de Argentina (se calcula una sola vez)
+FERIADOS_AR = [np.datetime64(d, 'D') for d in holidays.Argentina(years=range(2023, 2030)).keys()]
+
+def calcular_dias_habiles(inicio, fin):
+    """Calcula días hábiles (lun-vie) descontando feriados nacionales de Argentina. Mantiene vacíos como NA."""
+    s_ini = pd.to_datetime(inicio, errors='coerce')
+    s_fin = pd.Series(pd.to_datetime(fin, errors='coerce'), index=s_ini.index) if isinstance(fin, (pd.Timestamp, datetime.date)) else pd.to_datetime(fin, errors='coerce')
+    
+    resultado = pd.Series(pd.NA, index=s_ini.index, dtype="Int64")
+    mask = s_ini.notna() & s_fin.notna()
+    
+    if mask.any():
+        d_ini = s_ini[mask].values.astype('datetime64[D]')
+        d_fin = s_fin[mask].values.astype('datetime64[D]')
+        resultado.loc[mask] = np.busday_count(d_ini, d_fin, holidays=FERIADOS_AR)
+        
+    return resultado
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Portal Autociel", layout="wide", initial_sidebar_state="expanded")
 
@@ -535,8 +554,8 @@ elif opcion == "📦 Control de Stock y Documentación":
 
                     # 3. Diferencia en días manteniendo vacíos como nulos (Int64) en vez de 0
                     if not df_tabla_doc_act.empty:
-                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.astype("Int64")
-                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = (df_tabla_doc_act["FECHA_ENTREGA_DT"] - df_tabla_doc_act["FECHA_PAPELES_DT"]).dt.days.astype("Int64")
+                        df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = calcular_dias_habiles(df_tabla_doc_act["FECHA_PEDIDO_UNIDAD_DT"], df_tabla_doc_act["FECHA_ENTREGA_DT"])
+                        df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = calcular_dias_habiles(df_tabla_doc_act["FECHA_PAPELES_DT"], df_tabla_doc_act["FECHA_ENTREGA_DT"])
                     else:
                         df_tabla_doc_act["DIF_PEDIDO_ENTREGA"] = pd.Series(dtype="Int64")
                         df_tabla_doc_act["DIF_PAPELES_ENTREGA"] = pd.Series(dtype="Int64")
@@ -613,8 +632,8 @@ elif opcion == "📦 Control de Stock y Documentación":
                         return f"🟢 Al Día ({int(dias)}d)"
 
                     if not df_tabla_doc_pend.empty:
-                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"]).dt.days.astype("Int64")
-                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = (hoy_dt - df_tabla_doc_pend["FECHA_PAPELES_DT"]).dt.days.astype("Int64")
+                        df_tabla_doc_pend["DIF_PEDIDO_HOY"] = calcular_dias_habiles(df_tabla_doc_pend["FECHA_PEDIDO_UNIDAD_DT"], hoy_dt)
+                        df_tabla_doc_pend["DIF_PAPELES_HOY"] = calcular_dias_habiles(df_tabla_doc_pend["FECHA_PAPELES_DT"], hoy_dt)
                         df_tabla_doc_pend["ALERTA_DOC"] = df_tabla_doc_pend["DIF_PAPELES_HOY"].apply(semaforo_documental)
                     else:
                         df_tabla_doc_pend["DIF_PEDIDO_HOY"] = pd.Series(dtype="Int64")
