@@ -479,8 +479,16 @@ elif opcion == "📦 Control de Stock y Documentación":
                 # Con Fecha de Entrega: no entregados que tienen fecha confirmada
                 df_doc_con_fecha = df_doc_no_entregado[df_doc_no_entregado["FECHA_ENTREGA_DT"].notna()].copy()
 
-                # SIN Fecha de Entrega: TODAS las filas excluyendo "Entregado" en Estado Unidad y las que contienen fecha
+                # SIN Fecha de Entrega: excluye "Entregado", los que tienen fecha, vacíos en Canal de Venta y Autopatentados
                 df_doc_sin_fecha = df_doc_no_entregado[df_doc_no_entregado["FECHA_ENTREGA_DT"].isna()].copy()
+                if col_canal_doc in df_doc_sin_fecha.columns:
+                    canal_upper = df_doc_sin_fecha[col_canal_doc].fillna("").astype(str).str.strip().str.upper()
+                    mask_canal_valido = (
+                        (canal_upper != "") &
+                        (canal_upper != "NAN") &
+                        (~canal_upper.str.contains("AUTOPATENT", na=False))
+                    )
+                    df_doc_sin_fecha = df_doc_sin_fecha[mask_canal_valido].copy()
 
                 st.markdown("##### Seleccionar segmento operativo a visualizar (Documentación — 0KM WG):")
                 col_b1, col_b2 = st.columns(2)
